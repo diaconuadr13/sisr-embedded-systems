@@ -1,0 +1,20 @@
+# Architecture comparison sweep at x2 scale.
+# 'arch' selects the model class; 'model_name' is the experiment label.
+experiments:
+  - model_name: "ESPCN_x2"
+    arch: "ESPCN"
+    scale: 2
+    lr: 0.001
+    epochs: 100
+
+  - model_name: "ESPCN_Light_x2"
+    arch: "ESPCN_Light"
+    scale: 2
+    lr: 0.001
+    epochs: 100
+
+  - model_name: "FSRCNN_x2"
+    arch: "FSRCNN"
+    scale: 2
+    lr: 0.001
+    epochs: 100

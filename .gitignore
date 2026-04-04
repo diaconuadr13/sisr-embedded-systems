@@ -1,0 +1,41 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.disertatie/
+*.egg-info/
+
+# --- Data (download via download_data.py) ---
+data/
+
+# --- Experiment outputs ---
+runs/
+sweep_logs/
+
+# --- Model weights ---
+*.pth
+*.pt
+*.onnx
+*.tflite
+
+# --- IDE / OS ---
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# --- Env ---
+.env
+.env.*
+!.env.example
+
+# --- GSD / tooling ---
+.gsd/
+.gsd-id
+.bg-shell/
