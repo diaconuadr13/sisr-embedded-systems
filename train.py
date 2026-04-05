@@ -8,7 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import cv2
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -29,10 +31,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "arch": "ESPCN",  # model class: ESPCN | ESPCN_Light | FSRCNN
     "dataset_name": "DIV2K",
     "scale": 2,
-    "batch_size": 16,
+    "batch_size": 64,
     "epochs": 100,
     "lr": 1e-3,
-    "num_workers": 0,
+    "num_workers": 4,
 }
 
 
@@ -111,14 +113,23 @@ def save_visual_samples(
             lr_np = tensor_to_uint8(lr_up)
             sr_np = tensor_to_uint8(sr_img)
             hr_np = tensor_to_uint8(hr_img)
-            triplet = np.concatenate([lr_np, sr_np, hr_np], axis=1)
-            section_w = triplet.shape[1] // 3
-            y = 40
-            cv2.putText(triplet, "Bicubic (LR)", (10, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-            cv2.putText(triplet, "Model (SR)", (section_w + 10, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-            cv2.putText(triplet, "Target (HR)", (2 * section_w + 10, y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+
+            fig, axes = plt.subplots(1, 3, figsize=(12, 4), dpi=160)
+            panels = [
+                (lr_np, "Bicubic (LR)"),
+                (sr_np, "Model (SR)"),
+                (hr_np, "Target (HR)"),
+            ]
+            for ax, (img, title) in zip(axes, panels):
+                ax.imshow(img)
+                ax.set_title(title)
+                ax.axis("off")
+
+            fig.suptitle(f"Epoch {epoch} • Sample {sample_id}")
+            fig.tight_layout()
             out_path = visuals_dir / f"epoch_{epoch:04d}_sample_{sample_id}.png"
-            cv2.imwrite(str(out_path), cv2.cvtColor(triplet, cv2.COLOR_RGB2BGR))
+            fig.savefig(out_path, bbox_inches="tight", pad_inches=0.05)
+            plt.close(fig)
 
 
 def cleanup_vram() -> None:
