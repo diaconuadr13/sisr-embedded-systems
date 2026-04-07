@@ -29,13 +29,14 @@ Lightweight CNN architectures (ESPCN, FSRCNN, ESPCN-Light) trained and benchmark
 
 ```bash
 # 1. Install dependencies
+# Install a CUDA-enabled PyTorch build if you want GPU training/inference.
 pip install -r requirements.txt
 
 # 2. Download DIV2K dataset
 python download_data.py
 
 # 3. Train a single model
-python train.py --arch ESPCN --scale 2 --epochs 100
+python train.py --arch ESPCN --scale 2 --epochs 100 --device cuda --amp true
 
 # 4. Run an architecture comparison sweep
 python run_experiments.py configs/sweep_example.yaml
@@ -44,7 +45,7 @@ python run_experiments.py configs/sweep_example.yaml
 python plot_metrics.py --exp_dir runs/<model_name>/<dataset>/exp_YYYYMMDD_HHMMSS
 
 # 6. Profile inference speed
-python evaluate_pc.py --weights runs/.../best_model.pth --val_dir data/val/DIV2K_valid_HR --scale 2
+python evaluate_pc.py --weights runs/.../best_model.pth --val_dir data/val/DIV2K_valid_HR --device cuda --amp
 ```
 
 ## Supported Architectures
@@ -75,6 +76,17 @@ experiments:
 ```
 
 The orchestrator runs experiments sequentially with full error isolation and VRAM cleanup between runs.
+
+GPU settings can also be placed directly in a sweep entry:
+
+```yaml
+experiments:
+  - model_name: "ESPCN_x2_cuda"
+    arch: "ESPCN"
+    scale: 2
+    device: "cuda"
+    amp: true
+```
 
 ## Evaluation Metrics
 

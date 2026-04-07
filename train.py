@@ -4,6 +4,7 @@ import gc
 import json
 import random
 import time
+from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -18,7 +19,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from models import get_model, list_models
+from models import get_model
+from utils.device import configure_runtime, resolve_device
 from utils.dataset import SISRDataset
 from utils.metrics import calculate_psnr, calculate_ssim
 
@@ -35,7 +37,18 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "epochs": 100,
     "lr": 1e-3,
     "num_workers": 4,
+    "device": "auto",
+    "amp": True,
 }
+
+
+def parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"Expected a boolean value, got '{value}'.")
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,7 +57,8 @@ def parse_args() -> argparse.Namespace:
     for k, v in DEFAULT_CONFIG.items():
         flag = f"--{k}"
         aliases = [f"--{k.replace('_', '-')}"] if "_" in k else []
-        p.add_argument(flag, *aliases, dest=k, type=type(v), default=None)
+        value_type = parse_bool if isinstance(v, bool) else type(v)
+        p.add_argument(flag, *aliases, dest=k, type=value_type, default=None)
     return p.parse_args()
 
 
@@ -140,6 +154,12 @@ def cleanup_vram() -> None:
         torch.cuda.ipc_collect()
 
 
+def autocast_context(use_amp: bool) -> Any:
+    if use_amp:
+        return torch.autocast(device_type="cuda", dtype=torch.float16)
+    return nullcontext()
+
+
 def train(cfg: Dict[str, Any]) -> Path:
     """Run one full training experiment. Returns the experiment directory path."""
     exp_dir = create_experiment_dir(cfg["model_name"], cfg["dataset_name"])
@@ -149,8 +169,11 @@ def train(cfg: Dict[str, Any]) -> Path:
     with (exp_dir / "config.json").open("w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[train] device={device}  exp_dir={exp_dir}")
+    device = resolve_device(str(cfg.get("device", "auto")))
+    configure_runtime(device)
+    use_amp = bool(cfg.get("amp", True)) and device.type == "cuda"
+    scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+    print(f"[train] device={device}  amp={use_amp}  exp_dir={exp_dir}")
 
     patch_size = cfg["scale"] * 24
     train_dataset = SISRDataset(hr_dir=cfg["hr_dir"], scale=cfg["scale"], patch_size=patch_size)
@@ -162,6 +185,7 @@ def train(cfg: Dict[str, Any]) -> Path:
         shuffle=True,
         num_workers=cfg["num_workers"],
         pin_memory=(device.type == "cuda"),
+        persistent_workers=cfg["num_workers"] > 0,
     )
     val_loader = DataLoader(
         val_dataset,
@@ -169,6 +193,7 @@ def train(cfg: Dict[str, Any]) -> Path:
         shuffle=False,
         num_workers=cfg["num_workers"],
         pin_memory=(device.type == "cuda"),
+        persistent_workers=cfg["num_workers"] > 0,
     )
 
     arch = cfg.get("arch", "ESPCN")
@@ -195,10 +220,12 @@ def train(cfg: Dict[str, Any]) -> Path:
                     lr_imgs = lr_imgs.to(device, non_blocking=True)
                     hr_imgs = hr_imgs.to(device, non_blocking=True)
                     optimizer.zero_grad(set_to_none=True)
-                    sr_imgs = model(lr_imgs)
-                    loss = criterion(sr_imgs, hr_imgs)
-                    loss.backward()
-                    optimizer.step()
+                    with autocast_context(use_amp):
+                        sr_imgs = model(lr_imgs)
+                        loss = criterion(sr_imgs, hr_imgs)
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
                     bs = lr_imgs.size(0)
                     total_train_loss += float(loss.item()) * bs
                     train_count += bs
@@ -217,8 +244,9 @@ def train(cfg: Dict[str, Any]) -> Path:
                     for lr_imgs, hr_imgs in val_pbar:
                         lr_imgs = lr_imgs.to(device, non_blocking=True)
                         hr_imgs = hr_imgs.to(device, non_blocking=True)
-                        sr_imgs = torch.clamp(model(lr_imgs), 0.0, 1.0)
-                        val_loss = criterion(sr_imgs, hr_imgs)
+                        with autocast_context(use_amp):
+                            sr_imgs = torch.clamp(model(lr_imgs), 0.0, 1.0)
+                            val_loss = criterion(sr_imgs, hr_imgs)
                         bs = lr_imgs.size(0)
                         total_val_loss += float(val_loss.item()) * bs
                         for sr_img, hr_img in zip(sr_imgs, hr_imgs):
@@ -241,15 +269,37 @@ def train(cfg: Dict[str, Any]) -> Path:
 
                 if avg_psnr > best_psnr:
                     best_psnr = avg_psnr
-                    torch.save(model.state_dict(), exp_dir / "best_model.pth")
+                    torch.save(
+                        {
+                            "state_dict": model.state_dict(),
+                            "arch": arch,
+                            "scale": cfg["scale"],
+                            "model_name": cfg["model_name"],
+                            "device": str(device),
+                            "amp": use_amp,
+                            "config": cfg,
+                        },
+                        exp_dir / "best_model.pth",
+                    )
 
                 if epoch % 10 == 0:
-                    torch.save(model.state_dict(), exp_dir / "last_model.pth")
+                    torch.save(
+                        {
+                            "state_dict": model.state_dict(),
+                            "arch": arch,
+                            "scale": cfg["scale"],
+                            "model_name": cfg["model_name"],
+                            "device": str(device),
+                            "amp": use_amp,
+                            "config": cfg,
+                        },
+                        exp_dir / "last_model.pth",
+                    )
                     save_visual_samples(model, val_dataset, device, epoch, visuals_dir)
 
     finally:
         # Deterministic VRAM release regardless of success/failure
-        del model, optimizer, criterion
+        del model, optimizer, criterion, scaler
         del train_loader, val_loader
         cleanup_vram()
 
