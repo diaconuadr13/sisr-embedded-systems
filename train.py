@@ -309,7 +309,17 @@ def train(cfg: Dict[str, Any]) -> Path:
 def main() -> None:
     args = parse_args()
     cfg = load_config(args)
-    train(cfg)
+
+    experiments = cfg.pop("experiments", None)
+    if experiments:
+        cli_overrides = {k: v for k, v in vars(args).items() if v is not None and k != "config"}
+        for exp in experiments:
+            run_cfg = dict(DEFAULT_CONFIG)
+            run_cfg.update(exp)
+            run_cfg.update(cli_overrides)
+            train(run_cfg)
+    else:
+        train(cfg)
 
 
 if __name__ == "__main__":

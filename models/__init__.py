@@ -7,12 +7,18 @@ from torch import nn
 from models.espcn import ESPCN
 from models.espcn_light import ESPCNLight
 from models.fsrcnn import FSRCNN
+from models.srcnn import SRCNN
+from models.edsr_tiny import EDSRTiny
+from models.carn_m import CARNM
 
 # Registry: canonical name → class. Lookup is case-insensitive.
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "ESPCN": ESPCN,
     "ESPCN_Light": ESPCNLight,
     "FSRCNN": FSRCNN,
+    "SRCNN": SRCNN,
+    "EDSR_Tiny": EDSRTiny,
+    "CARN_M": CARNM,
 }
 
 

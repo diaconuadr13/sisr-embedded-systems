@@ -1,0 +1,23 @@
+# New architecture comparison sweep at x2 scale.
+# Covers three architectural paradigms introduced after the baseline ESPCN/FSRCNN era:
+#   SRCNN    — bicubic upsample then CNN refinement (2014 original deep SR)
+#   EDSR_Tiny — residual blocks without batch norm, pixel shuffle (2017)
+#   CARN_M   — cascading residual groups with group convolutions (2018, mobile variant)
+experiments:
+  - model_name: "SRCNN_x2"
+    arch: "SRCNN"
+    scale: 2
+    lr: 0.001
+    epochs: 100
+
+  - model_name: "EDSR_Tiny_x2"
+    arch: "EDSR_Tiny"
+    scale: 2
+    lr: 0.001
+    epochs: 100
+
+  - model_name: "CARN_M_x2"
+    arch: "CARN_M"
+    scale: 2
+    lr: 0.001
+    epochs: 100
