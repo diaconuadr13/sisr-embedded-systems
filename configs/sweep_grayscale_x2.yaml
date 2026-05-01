@@ -1,0 +1,71 @@
+# Grayscale x2 sweep — all architectures retrained for C runtime compatibility.
+# grayscale: true produces 1-channel models that match csrc/ inference code.
+# ESPCN_Light and CARN_M are the two architectures with C implementations (esp32-deployable).
+# Others included for thesis comparison (PSNR/SSIM benchmarking only).
+
+experiments:
+  - model_name: "ESPCN_Light_gray_x2"
+    arch: "ESPCN_Light"
+    dataset_name: "DIV2K"
+    hr_dir: "data/train/DIV2K_train_HR"
+    val_dir: "data/val/DIV2K_valid_HR"
+    scale: 2
+    grayscale: true
+    num_workers: 8
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "CARN_M_gray_x2"
+    arch: "CARN_M"
+    dataset_name: "DIV2K"
+    hr_dir: "data/train/DIV2K_train_HR"
+    val_dir: "data/val/DIV2K_valid_HR"
+    scale: 2
+    grayscale: true
+    num_workers: 8
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "ESPCN_gray_x2"
+    arch: "ESPCN"
+    dataset_name: "DIV2K"
+    hr_dir: "data/train/DIV2K_train_HR"
+    val_dir: "data/val/DIV2K_valid_HR"
+    scale: 2
+    grayscale: true
+    num_workers: 8
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "FSRCNN_gray_x2"
+    arch: "FSRCNN"
+    dataset_name: "DIV2K"
+    hr_dir: "data/train/DIV2K_train_HR"
+    val_dir: "data/val/DIV2K_valid_HR"
+    scale: 2
+    grayscale: true
+    num_workers: 8
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "SRCNN_gray_x2"
+    arch: "SRCNN"
+    dataset_name: "DIV2K"
+    hr_dir: "data/train/DIV2K_train_HR"
+    val_dir: "data/val/DIV2K_valid_HR"
+    scale: 2
+    grayscale: true
+    num_workers: 8
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "EDSR_Tiny_gray_x2"
+    arch: "EDSR_Tiny"
+    dataset_name: "DIV2K"
+    hr_dir: "data/train/DIV2K_train_HR"
+    val_dir: "data/val/DIV2K_valid_HR"
+    scale: 2
+    grayscale: true
+    num_workers: 8
+    epochs: 100
+    lr: 0.001

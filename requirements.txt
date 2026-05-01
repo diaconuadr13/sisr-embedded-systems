@@ -1,3 +1,6 @@
+# TFLite export (tools/export_tflite.py)
+# litert-torch    -- PyTorch -> TFLite conversion (install separately, not pinned)
+# tensorflow      -- required only for --int8 quantization (install separately)
 colorama==0.4.6
 contourpy==1.3.3
 cycler==0.12.1

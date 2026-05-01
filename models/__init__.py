@@ -22,15 +22,15 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
 }
 
 
-def get_model(model_name: str, scale: int, device: torch.device) -> nn.Module:
+def get_model(model_name: str, scale: int, device: torch.device,
+              num_channels: int = 3) -> nn.Module:
     """Instantiate a model by name. Raises ValueError on unknown name."""
-    # Case-insensitive lookup
     lookup = {k.lower(): v for k, v in MODEL_REGISTRY.items()}
     cls = lookup.get(model_name.lower())
     if cls is None:
         available = ", ".join(MODEL_REGISTRY.keys())
         raise ValueError(f"Unknown model '{model_name}'. Available: {available}")
-    return cls(scale_factor=scale, num_channels=3).to(device)
+    return cls(scale_factor=scale, num_channels=num_channels).to(device)
 
 
 def list_models() -> list[str]:

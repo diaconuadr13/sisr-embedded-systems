@@ -36,9 +36,10 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "batch_size": 64,
     "epochs": 100,
     "lr": 1e-3,
-    "num_workers": 4,
+    "num_workers": 8,
     "device": "auto",
     "amp": True,
+    "grayscale": False,
 }
 
 
@@ -176,8 +177,9 @@ def train(cfg: Dict[str, Any]) -> Path:
     print(f"[train] device={device}  amp={use_amp}  exp_dir={exp_dir}")
 
     patch_size = cfg["scale"] * 24
-    train_dataset = SISRDataset(hr_dir=cfg["hr_dir"], scale=cfg["scale"], patch_size=patch_size)
-    val_dataset = SISRDataset(hr_dir=cfg["val_dir"], scale=cfg["scale"], patch_size=patch_size)
+    grayscale = cfg.get("grayscale", False)
+    train_dataset = SISRDataset(hr_dir=cfg["hr_dir"], scale=cfg["scale"], patch_size=patch_size, grayscale=grayscale)
+    val_dataset = SISRDataset(hr_dir=cfg["val_dir"], scale=cfg["scale"], patch_size=patch_size, grayscale=grayscale)
 
     train_loader = DataLoader(
         train_dataset,
@@ -197,7 +199,8 @@ def train(cfg: Dict[str, Any]) -> Path:
     )
 
     arch = cfg.get("arch", "ESPCN")
-    model = get_model(arch, scale=cfg["scale"], device=device)
+    num_channels = 1 if grayscale else 3
+    model = get_model(arch, scale=cfg["scale"], device=device, num_channels=num_channels)
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[train] arch={arch}  params={trainable:,}")
     criterion = nn.MSELoss()
