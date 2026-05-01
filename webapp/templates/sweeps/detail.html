@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Sweep #{{ job.id }} — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <div>
+    <h1>Sweep #{{ job.id }}</h1>
+    <p class="muted">
+      <span class="status status-{{ job.status }}">{{ job.status }}</span>
+      · created {{ job.created_at }}
+      {% if job.started_at %}· started {{ job.started_at }}{% endif %}
+      {% if job.finished_at %}· finished {{ job.finished_at }}{% endif %}
+    </p>
+  </div>
+  <div class="row">
+    {% if job.status in ["queued", "running"] %}
+    <form method="post" action="/jobs/{{ job.id }}/cancel">
+      <button type="submit" class="button secondary">Cancel sweep</button>
+    </form>
+    {% endif %}
+    <a href="/jobs/{{ job.id }}" class="button secondary">Open job view</a>
+  </div>
+</section>
+
+<section id="sweep-progress"
+  {% if job.status in ["queued", "running"] %}
+    hx-get="/jobs/{{ job.id }}/progress" hx-trigger="load, every 3s" hx-swap="innerHTML"
+  {% else %}
+    hx-get="/jobs/{{ job.id }}/progress" hx-trigger="load" hx-swap="innerHTML"
+  {% endif %}
+>
+  <p class="muted">Loading sweep progress…</p>
+</section>
+
+<section class="card">
+  <div class="card-header"><h2>Sweep YAML</h2></div>
+  <pre class="code-block">{{ job.config_yaml or '—' }}</pre>
+</section>
+
+{% endblock %}

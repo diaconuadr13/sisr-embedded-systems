@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}SISR Thesis Manager{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <a href="/dashboard">SISR Thesis Manager</a>
+    </div>
+    <nav class="nav">
+      <a href="/dashboard" class="{% if nav == 'dashboard' %}active{% endif %}">Dashboard</a>
+      <a href="/runs" class="{% if nav == 'runs' %}active{% endif %}">Runs</a>
+      <a href="/experiments/new" class="{% if nav == 'new' %}active{% endif %}">+ New</a>
+      <a href="/sweeps" class="{% if nav == 'sweeps' %}active{% endif %}">Sweeps</a>
+      <a href="/jobs" class="{% if nav == 'jobs' %}active{% endif %}">Jobs</a>
+      <a href="/inference" class="{% if nav == 'inference' %}active{% endif %}">Inference</a>
+      <a href="/benchmark" class="{% if nav == 'benchmark' %}active{% endif %}">Benchmark</a>
+      <a href="/architectures" class="{% if nav == 'architectures' %}active{% endif %}">Architectures</a>
+    </nav>
+  </header>
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/js/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

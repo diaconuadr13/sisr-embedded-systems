@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}New experiment — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <h1>New experiment</h1>
+  <p class="muted">Launches <code>train.py --config &lt;tmp&gt;.yaml</code> as a background job.</p>
+</section>
+
+<form method="post" action="/experiments" class="card form-grid">
+  <label>
+    <span>Model name</span>
+    <input type="text" name="model_name" value="{{ values.model_name }}" required>
+    <small class="muted">Used as the folder under <code>runs/</code>.</small>
+  </label>
+
+  <label>
+    <span>Architecture</span>
+    <select name="arch" required>
+      {% for a in archs %}
+        <option value="{{ a }}" {% if values.arch == a %}selected{% endif %}>{{ a }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>
+    <span>Scale</span>
+    <input type="number" name="scale" value="{{ values.scale }}" min="1" max="8" required>
+  </label>
+
+  <label>
+    <span>Dataset name</span>
+    <input type="text" name="dataset_name" value="{{ values.dataset_name }}" required>
+  </label>
+
+  <label>
+    <span>Epochs</span>
+    <input type="number" name="epochs" value="{{ values.epochs }}" min="1" required>
+  </label>
+
+  <label>
+    <span>Batch size</span>
+    <input type="number" name="batch_size" value="{{ values.batch_size }}" min="1" required>
+  </label>
+
+  <label>
+    <span>Learning rate</span>
+    <input type="number" name="lr" value="{{ values.lr }}" step="0.0001" min="0" required>
+  </label>
+
+  <label>
+    <span>Num workers</span>
+    <input type="number" name="num_workers" value="{{ values.num_workers }}" min="0" required>
+  </label>
+
+  <label>
+    <span>Device</span>
+    <select name="device">
+      {% for d in devices %}
+        <option value="{{ d }}" {% if values.device == d %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="checkbox">
+    <input type="checkbox" name="amp" value="true" {% if values.amp %}checked{% endif %}>
+    <span>AMP (mixed precision, CUDA only)</span>
+  </label>
+
+  <label class="checkbox">
+    <input type="checkbox" name="grayscale" value="true" {% if values.grayscale %}checked{% endif %}>
+    <span>Grayscale (1-channel, required for C runtime / ESP32 deployment)</span>
+  </label>
+
+  <label class="wide">
+    <span>HR train dir</span>
+    <select name="hr_dir" required>
+      {% for d in train_dirs %}
+        <option value="{{ d }}" {% if values.hr_dir == d %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="wide">
+    <span>HR val dir</span>
+    <select name="val_dir" required>
+      {% for d in val_dirs %}
+        <option value="{{ d }}" {% if values.val_dir == d %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <div class="form-actions wide">
+    <button type="submit">Launch experiment</button>
+    <a href="/jobs" class="secondary">Cancel</a>
+  </div>
+</form>
+
+{% endblock %}

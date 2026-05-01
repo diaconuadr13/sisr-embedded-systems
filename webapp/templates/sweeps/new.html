@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block title %}New sweep — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <h1>New sweep</h1>
+  <p class="muted">Compose experiments as rows, then launch with <code>run_experiments.py</code>.</p>
+</section>
+
+<form method="post" action="/sweeps" class="card">
+  <div class="row" style="margin-bottom: 10px; justify-content: space-between;">
+    <div class="row" style="margin: 0;">
+      <button type="button" id="add-row" class="button secondary">+ Add row</button>
+      <span class="muted small">Rows map to <code>experiments: []</code> entries.</span>
+    </div>
+    <span class="muted small">Available archs: {{ archs | join(", ") }}</span>
+  </div>
+
+  <div class="row" style="gap: 16px; margin-bottom: 12px; align-items: center;">
+    <label style="margin: 0; flex: 1;">
+      <span class="muted small">Val dir (shared across all rows)</span>
+      <select id="global-val-dir">
+        {% for d in val_dirs %}
+        <option value="{{ d }}">{{ d }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+
+  <table class="data-table composer-table">
+    <thead>
+      <tr>
+        <th>Model name</th>
+        <th>Arch</th>
+        <th>Train dir</th>
+        <th>Scale</th>
+        <th>Epochs</th>
+        <th>LR</th>
+        <th>Gray</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="composer-body"></tbody>
+  </table>
+
+  <div class="row" style="margin: 12px 0 10px 0; justify-content: space-between;">
+    <label class="row" style="margin: 0;">
+      <span class="muted small">Load existing config:</span>
+      <select id="existing-select">
+        <option value="">—</option>
+        {% for name in existing %}
+        <option value="{{ name }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" id="load-existing" class="secondary">Load rows</button>
+    </label>
+    <span class="muted small">Tip: keep model names unique to avoid mixing outputs.</span>
+  </div>
+
+  <label for="yaml-text" class="muted small">Generated YAML (editable)</label>
+  <textarea name="yaml_text" id="yaml-text" rows="14" class="mono" spellcheck="false" required>{{ template }}</textarea>
+
+  <div class="form-actions" style="margin-top: 12px;">
+    <button type="submit">Launch sweep</button>
+    <a href="/sweeps" class="secondary">Cancel</a>
+  </div>
+</form>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    const defaultRows = {{ default_rows | tojson }};
+    const archs = {{ archs | tojson }};
+    const trainDirs = {{ train_dirs | tojson }};
+
+    const body = document.getElementById('composer-body');
+    const yamlText = document.getElementById('yaml-text');
+    const addRowBtn = document.getElementById('add-row');
+    const sel = document.getElementById('existing-select');
+    const btn = document.getElementById('load-existing');
+    const globalValDir = document.getElementById('global-val-dir');
+    if (!body || !yamlText || !addRowBtn || !btn || !sel) return;
+
+    const firstTrainDir = trainDirs.length ? trainDirs[0] : '';
+
+    function normalizeRow(row, idx) {
+      const firstArch = archs.length ? archs[0] : 'ESPCN';
+      return {
+        model_name: String((row && row.model_name) || `run_${idx + 1}`),
+        arch: String((row && row.arch) || firstArch),
+        hr_dir: String((row && (row.hr_dir || row.dataset_name)) || firstTrainDir),
+        scale: Number((row && row.scale) || 2),
+        epochs: Number((row && row.epochs) || 3),
+        lr: Number((row && row.lr) || 0.001),
+        grayscale: Boolean(row && row.grayscale),
+      };
+    }
+
+    let rows = (Array.isArray(defaultRows) && defaultRows.length ? defaultRows : [{}]).map(normalizeRow);
+
+    function archOptions(selected) {
+      const set = archs.length ? archs : ['ESPCN'];
+      return set
+        .map((a) => `<option value="${a}" ${a === selected ? 'selected' : ''}>${a}</option>`)
+        .join('');
+    }
+
+    function trainDirOptions(selected) {
+      if (!trainDirs.length) return `<option value="${selected}">${selected}</option>`;
+      return trainDirs
+        .map((d) => `<option value="${d}" ${d === selected ? 'selected' : ''}>${d}</option>`)
+        .join('');
+    }
+
+    function esc(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function escYaml(value) {
+      return String(value ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    }
+
+    function datasetName(hr_dir) {
+      const parts = hr_dir.replace(/\\/g, '/').split('/');
+      return parts[parts.length - 1] || hr_dir;
+    }
+
+    function toYaml() {
+      const valDir = globalValDir ? globalValDir.value : '';
+      const lines = ['experiments:'];
+      rows.forEach((r) => {
+        lines.push(`  - model_name: "${escYaml(r.model_name)}"`);
+        lines.push(`    arch: "${escYaml(r.arch)}"`);
+        lines.push(`    dataset_name: "${escYaml(datasetName(r.hr_dir))}"`);
+        lines.push(`    hr_dir: "${escYaml(r.hr_dir)}"`);
+        if (valDir) lines.push(`    val_dir: "${escYaml(valDir)}"`);
+        lines.push(`    scale: ${Number.isFinite(r.scale) ? Math.max(1, Math.round(r.scale)) : 2}`);
+        lines.push(`    epochs: ${Number.isFinite(r.epochs) ? Math.max(1, Math.round(r.epochs)) : 3}`);
+        lines.push(`    lr: ${Number.isFinite(r.lr) ? r.lr : 0.001}`);
+        lines.push(`    grayscale: ${r.grayscale ? 'true' : 'false'}`);
+      });
+      return lines.join('\n') + '\n';
+    }
+
+    function syncYaml() {
+      yamlText.value = toYaml();
+    }
+
+    function render() {
+      body.innerHTML = rows
+        .map((r, idx) => `
+          <tr data-idx="${idx}">
+            <td><input type="text" data-field="model_name" value="${esc(r.model_name)}" required></td>
+            <td><select data-field="arch">${archOptions(r.arch)}</select></td>
+            <td><select data-field="hr_dir">${trainDirOptions(r.hr_dir)}</select></td>
+            <td><input type="number" data-field="scale" value="${esc(r.scale)}" min="1" max="8" required></td>
+            <td><input type="number" data-field="epochs" value="${esc(r.epochs)}" min="1" required></td>
+            <td><input type="number" data-field="lr" value="${esc(r.lr)}" step="0.0001" min="0" required></td>
+            <td style="text-align:center"><input type="checkbox" data-field="grayscale" ${r.grayscale ? 'checked' : ''}></td>
+            <td class="row">
+              <button type="button" class="button secondary" data-action="duplicate">Duplicate</button>
+              <button type="button" class="button secondary" data-action="remove">Remove</button>
+            </td>
+          </tr>
+        `)
+        .join('');
+      syncYaml();
+    }
+
+    function addBlankRow() {
+      rows.push(normalizeRow({}, rows.length));
+      render();
+    }
+
+    addRowBtn.addEventListener('click', addBlankRow);
+    if (globalValDir) globalValDir.addEventListener('change', syncYaml);
+
+    body.addEventListener('input', (event) => {
+      const target = event.target;
+      const tr = target.closest('tr[data-idx]');
+      if (!tr) return;
+      const idx = Number(tr.dataset.idx);
+      const field = target.dataset.field;
+      if (!Number.isInteger(idx) || !field || !rows[idx]) return;
+
+      if (field === 'scale' || field === 'epochs' || field === 'lr') {
+        rows[idx][field] = Number(target.value);
+      } else if (field === 'grayscale') {
+        rows[idx][field] = target.checked;
+      } else {
+        rows[idx][field] = target.value;
+      }
+      syncYaml();
+    });
+
+    body.addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const tr = button.closest('tr[data-idx]');
+      if (!tr) return;
+      const idx = Number(tr.dataset.idx);
+      if (!Number.isInteger(idx) || !rows[idx]) return;
+
+      if (button.dataset.action === 'duplicate') {
+        const clone = { ...rows[idx] };
+        clone.model_name = `${clone.model_name}_copy`;
+        rows.splice(idx + 1, 0, clone);
+      } else if (button.dataset.action === 'remove') {
+        rows.splice(idx, 1);
+        if (!rows.length) {
+          rows.push(normalizeRow({}, 0));
+        }
+      }
+      render();
+    });
+
+    btn.addEventListener('click', async () => {
+      const name = sel.value;
+      if (!name) return;
+      const res = await fetch(`/sweeps/load/${encodeURIComponent(name)}/rows`);
+      if (!res.ok) {
+        alert('Failed to load rows: ' + res.status);
+        return;
+      }
+      const data = await res.json();
+      if (!Array.isArray(data.rows) || !data.rows.length) {
+        alert('Config has no rows');
+        return;
+      }
+      rows = data.rows.map(normalizeRow);
+      render();
+    });
+
+    render();
+  })();
+</script>
+{% endblock %}

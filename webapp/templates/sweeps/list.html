@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Sweeps — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <div>
+    <h1>Sweeps</h1>
+    <p class="muted">Batch experiments launched via <code>run_experiments.py</code>.</p>
+  </div>
+  <div><a class="button" href="/sweeps/new">+ New sweep</a></div>
+</section>
+
+{% if jobs %}
+<table class="data-table" hx-get="/sweeps" hx-trigger="every 5s" hx-select="table.data-table tbody" hx-target="table.data-table tbody" hx-swap="outerHTML">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Status</th>
+      <th>Children (success / failed / total)</th>
+      <th>Created</th>
+      <th>Started</th>
+      <th>Finished</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for j in jobs %}
+    {% set children = children_by_job.get(j.id, []) %}
+    {% set succ = children | selectattr("status", "equalto", "success") | list | length %}
+    {% set failed = children | selectattr("status", "equalto", "failed") | list | length %}
+    <tr>
+      <td><a href="/sweeps/{{ j.id }}">#{{ j.id }}</a></td>
+      <td><span class="status status-{{ j.status }}">{{ j.status }}</span></td>
+      <td>{{ succ }} / {{ failed }} / {{ children | length }}</td>
+      <td class="muted small">{{ j.created_at }}</td>
+      <td class="muted small">{{ j.started_at or '—' }}</td>
+      <td class="muted small">{{ j.finished_at or '—' }}</td>
+      <td><a href="/sweeps/{{ j.id }}">Details →</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-state">No sweeps yet. <a href="/sweeps/new">Start one →</a></p>
+{% endif %}
+
+{% endblock %}

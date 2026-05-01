@@ -1,0 +1,8 @@
+data/webapp.db
+data/uploads/*
+!data/uploads/.gitkeep
+data/job_logs/*
+!data/job_logs/.gitkeep
+__pycache__/
+*.pyc
+.pytest_cache/

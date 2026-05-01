@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Inference — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <div>
+    <h1>Inference</h1>
+    <p class="muted">Upload an image and run a trained checkpoint on it. Supports an HR input (bicubic-downscales first, then computes PSNR/SSIM) or a raw LR input.</p>
+  </div>
+</section>
+
+{% if not runs %}
+  <p class="empty-state">No runs with checkpoints found. Launch a training job first.</p>
+{% else %}
+<form id="inference-form"
+      hx-post="/inference/run"
+      hx-encoding="multipart/form-data"
+      hx-target="#inference-result"
+      hx-swap="innerHTML"
+      hx-indicator="#inference-spinner"
+      class="card form-grid">
+  <label class="wide">
+    <span>Run (checkpoint source)</span>
+    <select name="run_id" required>
+      {% for r in runs %}
+      <option value="{{ r.run_id }}" {% if r.run_id == preselect %}selected{% endif %}>
+        {{ r.model_name }} · {{ r.arch }} x{{ r.scale }}{% if r.best_psnr is not none %} · best PSNR {{ "%.2f"|format(r.best_psnr) }} dB{% endif %}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>
+    <span>Checkpoint</span>
+    <select name="checkpoint">
+      <option value="best" selected>best_model.pth</option>
+      <option value="last">last_model.pth</option>
+    </select>
+  </label>
+
+  <label>
+    <span>Upload kind</span>
+    <select name="upload_kind">
+      <option value="hr" selected>HR (downscale first, compute PSNR/SSIM)</option>
+      <option value="lr">LR (apply model directly)</option>
+    </select>
+  </label>
+
+  <label>
+    <span>Device</span>
+    <select name="device">
+      <option value="auto" selected>auto</option>
+      <option value="cuda">cuda</option>
+      <option value="cpu">cpu</option>
+    </select>
+  </label>
+
+  <label class="checkbox">
+    <input type="checkbox" name="amp" value="true">
+    <span>AMP (fp16, CUDA only)</span>
+  </label>
+
+  <label class="wide">
+    <span>Image</span>
+    <input type="file" name="image" accept="image/*" required>
+    <small class="muted">Max 16 MB. PNG/JPG/BMP supported.</small>
+  </label>
+
+  <div class="form-actions wide">
+    <button type="submit">Run inference</button>
+    <span id="inference-spinner" class="muted htmx-indicator">Running…</span>
+  </div>
+</form>
+
+<div id="inference-result"></div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<style>
+  .htmx-indicator { display: none; }
+  .htmx-request .htmx-indicator { display: inline; }
+  .htmx-request.htmx-indicator { display: inline; }
+</style>
+{% endblock %}

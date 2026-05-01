@@ -1,0 +1,78 @@
+<section class="card" style="margin-top: 16px;">
+  <div class="card-header">
+    <h2>Result</h2>
+    <span class="muted small">
+      {{ r.arch }} x{{ r.scale }} · {{ r.device }}{% if r.amp_used %} · AMP{% endif %} ·
+      {{ "%.2f"|format(r.inference_ms) }} ms ·
+      {{ r.lr_size[0] }}×{{ r.lr_size[1] }} → {{ r.sr_size[0] }}×{{ r.sr_size[1] }}
+    </span>
+  </div>
+
+  <div class="inference-grid">
+    <figure>
+      <figcaption class="muted small">LR input</figcaption>
+      <img src="{{ r.lr_url }}" alt="low-resolution input">
+      <div class="row small">
+        <a href="{{ r.lr_url }}" download>Download</a>
+      </div>
+    </figure>
+
+    <figure>
+      <figcaption class="muted small">
+        Bicubic upscale
+        {% if r.psnr_bicubic is not none %}
+          · PSNR {{ "%.3f"|format(r.psnr_bicubic) }} dB · SSIM {{ "%.4f"|format(r.ssim_bicubic) }}
+        {% endif %}
+      </figcaption>
+      <img src="{{ r.bicubic_url }}" alt="bicubic upscale">
+      <div class="row small">
+        <a href="{{ r.bicubic_url }}" download>Download</a>
+      </div>
+    </figure>
+
+    <figure>
+      <figcaption class="muted small">
+        Model output
+        {% if r.psnr_sr is not none %}
+          · PSNR {{ "%.3f"|format(r.psnr_sr) }} dB · SSIM {{ "%.4f"|format(r.ssim_sr) }}
+        {% endif %}
+      </figcaption>
+      <img src="{{ r.sr_url }}" alt="super-resolved output">
+      <div class="row small">
+        <a href="{{ r.sr_url }}" download>Download</a>
+      </div>
+    </figure>
+
+    {% if r.hr_url %}
+    <figure>
+      <figcaption class="muted small">HR reference</figcaption>
+      <img src="{{ r.hr_url }}" alt="ground truth">
+      <div class="row small">
+        <a href="{{ r.hr_url }}" download>Download</a>
+      </div>
+    </figure>
+    {% endif %}
+  </div>
+
+  {% if r.psnr_bicubic is not none %}
+  <table class="data-table" style="margin-top: 14px;">
+    <thead>
+      <tr><th>Metric</th><th>Bicubic</th><th>Model</th><th>Δ (model − bicubic)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>PSNR (dB)</td>
+        <td>{{ "%.3f"|format(r.psnr_bicubic) }}</td>
+        <td>{{ "%.3f"|format(r.psnr_sr) }}</td>
+        <td>{{ "%+.3f"|format(r.psnr_sr - r.psnr_bicubic) }}</td>
+      </tr>
+      <tr>
+        <td>SSIM</td>
+        <td>{{ "%.4f"|format(r.ssim_bicubic) }}</td>
+        <td>{{ "%.4f"|format(r.ssim_sr) }}</td>
+        <td>{{ "%+.4f"|format(r.ssim_sr - r.ssim_bicubic) }}</td>
+      </tr>
+    </tbody>
+  </table>
+  {% endif %}
+</section>

@@ -1,0 +1,23 @@
+<div id="tags-block" class="tags-block">
+  <div class="tags-list">
+    {% if tags %}
+      {% for t in tags %}
+        <span class="chip">
+          {{ t }}
+          <button
+            class="chip-remove"
+            hx-delete="/api/tags/{{ run.id }}/{{ t }}"
+            hx-target="#tags-block"
+            hx-swap="outerHTML"
+            title="Remove tag">×</button>
+        </span>
+      {% endfor %}
+    {% else %}
+      <span class="muted small">No tags.</span>
+    {% endif %}
+  </div>
+  <form hx-post="/api/tags/{{ run.id }}" hx-target="#tags-block" hx-swap="outerHTML" class="tag-form">
+    <input type="text" name="tag" placeholder="add tag (e.g. baseline)" maxlength="32" required>
+    <button type="submit">Add</button>
+  </form>
+</div>

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Compare runs — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <div>
+    <h1>Compare</h1>
+    <p class="muted">{{ details|length }} run(s) selected.</p>
+  </div>
+  {% if details %}
+  <div class="row">
+    <a class="button secondary"
+       href="/export/latex?{% for d in details %}runs={{ d.id }}{% if not loop.last %}&amp;{% endif %}{% endfor %}">
+      Export LaTeX (zip)
+    </a>
+  </div>
+  {% endif %}
+</section>
+
+{% if not details %}
+  <p class="empty-state">No runs selected. Go back to <a href="/runs">Runs</a> and tick some checkboxes.</p>
+{% else %}
+
+<section class="card">
+  <div class="card-header"><h2>Summary</h2></div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>Arch</th>
+        <th>Scale</th>
+        <th>Epochs</th>
+        <th>Best PSNR</th>
+        <th>Best SSIM</th>
+        <th>Final train loss</th>
+        <th>Final val loss</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for d in details %}
+      <tr>
+        <td><a href="/runs/{{ d.id }}">{{ d.model_name }}</a><div class="muted small">{{ d.exp_name }}</div></td>
+        <td>{{ d.arch }}</td>
+        <td>x{{ d.scale }}</td>
+        <td>{{ d.completed_epochs }}</td>
+        <td>{% if d.best_psnr is not none %}{{ "%.3f"|format(d.best_psnr) }}{% else %}—{% endif %}</td>
+        <td>{% if d.best_ssim is not none %}{{ "%.4f"|format(d.best_ssim) }}{% else %}—{% endif %}</td>
+        <td>{% if d.final_train_loss is not none %}{{ "%.5f"|format(d.final_train_loss) }}{% else %}—{% endif %}</td>
+        <td>{% if d.final_val_loss is not none %}{{ "%.5f"|format(d.final_val_loss) }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <div class="card-header"><h2>Training curves</h2></div>
+  <div class="chart-grid">
+    <div class="chart-cell"><canvas id="chart-psnr"></canvas></div>
+    <div class="chart-cell"><canvas id="chart-ssim"></canvas></div>
+    <div class="chart-cell"><canvas id="chart-trainloss"></canvas></div>
+    <div class="chart-cell"><canvas id="chart-valloss"></canvas></div>
+  </div>
+</section>
+
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+{% if details %}
+<script>
+  (function () {
+    const series = {{ series | tojson }};
+    const palette = ['#1f77b4','#d62728','#2ca02c','#9467bd','#ff7f0e','#17becf','#8c564b','#e377c2'];
+    function make(canvasId, field, yLabel) {
+      const ctx = document.getElementById(canvasId);
+      if (!ctx) return;
+      const allEpochs = new Set();
+      series.forEach(s => s.epochs.forEach(e => allEpochs.add(e)));
+      const labels = [...allEpochs].sort((a,b) => a-b);
+      const datasets = series.map((s, i) => {
+        const map = new Map(s.epochs.map((e, idx) => [e, s[field][idx]]));
+        return {
+          label: s.label,
+          data: labels.map(l => map.has(l) ? map.get(l) : null),
+          borderColor: palette[i % palette.length],
+          backgroundColor: 'transparent',
+          spanGaps: true,
+          tension: 0.15,
+        };
+      });
+      new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          animation: false,
+          plugins: { legend: { position: 'bottom' } },
+          scales: { x: { title: { display: true, text: 'Epoch' } },
+                    y: { title: { display: true, text: yLabel } } }
+        }
+      });
+    }
+    make('chart-psnr', 'val_psnr', 'Val PSNR (dB)');
+    make('chart-ssim', 'val_ssim', 'Val SSIM');
+    make('chart-trainloss', 'train_loss', 'Train loss');
+    make('chart-valloss', 'val_loss', 'Val loss');
+  })();
+</script>
+{% endif %}
+{% endblock %}

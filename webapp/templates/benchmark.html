@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Benchmark — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <div>
+    <h1>Benchmark</h1>
+    <p class="muted">
+      Profile inference speed. Fixed LR input
+      {{ lr_hw[1] }}×{{ lr_hw[0] }} · {{ warmup }} warmup + {{ measure }} measurement iters.
+      Results cached per (run, checkpoint, device, amp).
+    </p>
+  </div>
+</section>
+
+{% if not runs %}
+  <p class="empty-state">No runs with checkpoints. Launch a training job first.</p>
+{% else %}
+<form method="post" action="/benchmark/run" class="card form-grid">
+  <label class="wide">
+    <span>Run</span>
+    <select name="run_id" required>
+      {% for r in runs %}
+      <option value="{{ r.run_id }}">
+        {{ r.model_name }} · {{ r.arch }} x{{ r.scale }}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label>
+    <span>Checkpoint</span>
+    <select name="checkpoint">
+      <option value="best" selected>best_model.pth</option>
+      <option value="last">last_model.pth</option>
+    </select>
+  </label>
+
+  <label>
+    <span>Device</span>
+    <select name="device">
+      <option value="auto" selected>auto</option>
+      <option value="cuda">cuda</option>
+      <option value="cpu">cpu</option>
+    </select>
+  </label>
+
+  <label class="checkbox">
+    <input type="checkbox" name="amp" value="true">
+    <span>AMP (fp16, CUDA only)</span>
+  </label>
+
+  <label class="checkbox">
+    <input type="checkbox" name="force" value="true">
+    <span>Force re-run (ignore cache)</span>
+  </label>
+
+  <div class="form-actions wide">
+    <button type="submit">Run benchmark</button>
+    <span class="muted small">Blocking while running (seconds on GPU, longer on CPU).</span>
+  </div>
+</form>
+{% endif %}
+
+{% if cached %}
+<section class="card">
+  <div class="card-header"><h2>Cached results</h2></div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Run</th>
+        <th>Checkpoint</th>
+        <th>Device</th>
+        <th>AMP</th>
+        <th>Avg ms</th>
+        <th>FPS</th>
+        <th>Params</th>
+        <th>Recorded</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in cached %}
+      <tr>
+        <td><a href="/runs/{{ b.run_id }}"><code>{{ b.run_id }}</code></a></td>
+        <td>{{ b.checkpoint }}</td>
+        <td>{{ b.device }}</td>
+        <td>{{ "yes" if b.amp else "no" }}</td>
+        <td>{{ "%.3f"|format(b.avg_ms) }}</td>
+        <td>{{ "%.2f"|format(b.fps) }}</td>
+        <td>{{ "{:,}".format(b.params) }}</td>
+        <td class="muted small">{{ b.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% else %}
+<p class="empty-state">No benchmark results cached yet.</p>
+{% endif %}
+
+{% endblock %}

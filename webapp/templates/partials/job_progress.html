@@ -1,0 +1,141 @@
+{% if job.type == "single" %}
+  <section class="card">
+    <div class="card-header"><h2>Progress</h2></div>
+    {% if live.epoch %}
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Epoch</div>
+          <div class="stat-value">{{ live.epoch }}{% if live.total_epochs %} / {{ live.total_epochs }}{% endif %}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Latest Val PSNR</div>
+          <div class="stat-value">{% if live.val_psnr is not none %}{{ "%.3f"|format(live.val_psnr) }} dB{% else %}—{% endif %}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Latest Val SSIM</div>
+          <div class="stat-value">{% if live.val_ssim is not none %}{{ "%.4f"|format(live.val_ssim) }}{% else %}—{% endif %}</div>
+        </div>
+      </div>
+      {% if live.total_epochs %}
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: {{ (100 * live.epoch / live.total_epochs) | round(1) }}%"></div>
+      </div>
+      {% endif %}
+    {% elif job.status == "running" %}
+      <p class="muted">Waiting for first epoch to complete…</p>
+    {% elif job.status == "queued" %}
+      <p class="muted">Waiting in queue…</p>
+    {% else %}
+      <p class="muted">No epoch metrics recorded.</p>
+    {% endif %}
+  </section>
+
+{% elif job.type == "sweep" %}
+  <section class="card">
+    <div class="card-header"><h2>Sweep progress</h2></div>
+    {% set total = live.planned | length %}
+    {% set done  = live.children | length %}
+    {% if total %}
+      <p class="muted" style="margin-bottom:8px">{{ done }} / {{ total }} experiments complete</p>
+      <div class="progress-bar" style="margin-bottom:16px">
+        <div class="progress-fill" style="width: {{ (100 * done / total) | round(1) }}%"></div>
+      </div>
+    {% endif %}
+
+    {% if live.active %}
+      {% set a = live.active %}
+      <div class="card" style="margin-bottom:16px;border:1px solid var(--accent,#4f8ef7)">
+        <div class="card-header">
+          <h3 style="margin:0">Running: {{ a.model_name }} <span class="muted small">({{ a.arch }})</span></h3>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Epoch</div>
+            <div class="stat-value">{{ a.epoch }} / {{ a.total_epochs }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Val PSNR</div>
+            <div class="stat-value">{% if a.val_psnr is not none %}{{ "%.3f"|format(a.val_psnr) }} dB{% else %}—{% endif %}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Val SSIM</div>
+            <div class="stat-value">{% if a.val_ssim is not none %}{{ "%.4f"|format(a.val_ssim) }}{% else %}—{% endif %}</div>
+          </div>
+        </div>
+        {% if a.total_epochs %}
+        <div class="progress-bar" style="margin-top:8px">
+          <div class="progress-fill" style="width: {{ (100 * a.epoch / a.total_epochs) | round(1) }}%"></div>
+        </div>
+        {% endif %}
+      </div>
+    {% endif %}
+
+    {% set done_by_name = {} %}
+    {% for c in live.children %}{% set _ = done_by_name.update({c.config.model_name: c}) %}{% endfor %}
+
+    {% if live.planned %}
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Model</th><th>Arch</th><th>Scale</th><th>Epochs</th><th>Status</th><th>Best PSNR</th><th>Exp dir</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in live.planned %}
+            {% set child = done_by_name.get(p.model_name) %}
+            {% set is_active = live.active and live.active.model_name == p.model_name %}
+            <tr>
+              <td>{{ p.index }}</td>
+              <td>{{ p.model_name }}</td>
+              <td>{{ p.arch }}</td>
+              <td>x{{ p.scale }}</td>
+              <td>{{ p.epochs }}</td>
+              <td>
+                {% if child %}
+                  <span class="status status-{{ child.status }}">{{ child.status }}</span>
+                {% elif is_active %}
+                  <span class="status status-running">running</span>
+                {% else %}
+                  <span class="muted">queued</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if child and child.best_psnr is defined and child.best_psnr %}
+                  {{ "%.3f"|format(child.best_psnr) }} dB
+                {% elif is_active and live.active.val_psnr is not none %}
+                  {{ "%.3f"|format(live.active.val_psnr) }} dB <span class="muted small">(live)</span>
+                {% else %}—{% endif %}
+              </td>
+              <td>
+                {% if child and child.exp_dir %}
+                  {% set rel = child.exp_dir.replace("runs/", "", 1) %}
+                  <a href="/runs/{{ rel }}"><code>{{ rel }}</code></a>
+                {% else %}<span class="muted">—</span>{% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% elif job.status == "queued" %}
+      <p class="muted">Waiting in queue…</p>
+    {% else %}
+      <p class="muted">No sub-experiment records found.</p>
+    {% endif %}
+  </section>
+{% endif %}
+
+{% if job.error %}
+<section class="card error-card">
+  <div class="card-header"><h2>Error</h2></div>
+  <pre class="code-block">{{ job.error }}</pre>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="card-header"><h2>Stdout (tail)</h2></div>
+  {% if stdout_tail %}
+  <pre class="code-block log-tail">{{ stdout_tail }}</pre>
+  {% else %}
+  <p class="muted">No output yet.</p>
+  {% endif %}
+</section>

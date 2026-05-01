@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Jobs — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <div>
+    <h1>Jobs</h1>
+    <p class="muted">Training and sweep jobs. Queue runs one at a time on the GPU.</p>
+  </div>
+  <div class="row">
+    <a href="/experiments/new" class="button">+ New experiment</a>
+    <a href="/sweeps/new" class="button secondary">+ New sweep</a>
+  </div>
+</section>
+
+{% if jobs %}
+<table class="data-table" hx-get="/jobs" hx-trigger="every 5s" hx-select="table.data-table tbody" hx-target="table.data-table tbody" hx-swap="outerHTML">
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Type</th>
+      <th>Status</th>
+      <th>Exp dir</th>
+      <th>Created</th>
+      <th>Started</th>
+      <th>Finished</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for j in jobs %}
+    <tr>
+      <td><a href="/jobs/{{ j.id }}">#{{ j.id }}</a></td>
+      <td>{{ j.type }}</td>
+      <td><span class="status status-{{ j.status }}">{{ j.status }}</span></td>
+      <td>
+        {% if j.exp_dir %}
+          <a href="/runs/{{ j.exp_dir }}"><code>{{ j.exp_dir }}</code></a>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td class="muted small">{{ j.created_at }}</td>
+      <td class="muted small">{{ j.started_at or '—' }}</td>
+      <td class="muted small">{{ j.finished_at or '—' }}</td>
+      <td><a href="/jobs/{{ j.id }}">Details →</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-state">No jobs yet. <a href="/experiments/new">Launch an experiment →</a></p>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Architectures — SISR Thesis Manager{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <h1>Architectures</h1>
+  <p class="muted">Models registered in <code>models/__init__.py</code>. FLOPs computed for a 64×64 input (upscaled).</p>
+</section>
+
+{% for row in rows %}
+<section class="card">
+  <div class="card-header">
+    <h2>{{ row.name }}</h2>
+  </div>
+  <p class="muted">{{ row.description }}</p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Scale</th>
+        <th>Trainable params</th>
+        <th>FLOPs (M)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in scales %}
+      {% set stats = row.per_scale[s] %}
+      <tr>
+        <td>x{{ s }}</td>
+        <td>
+          {% if stats.params %}
+            {{ "{:,}".format(stats.params) }}
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if stats.flops_m is not none %}
+            {{ "%.2f"|format(stats.flops_m) }}
+          {% else %}
+            <span class="muted">unavailable</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endfor %}
+
+{% endblock %}
