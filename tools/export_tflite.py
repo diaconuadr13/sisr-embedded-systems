@@ -4,7 +4,7 @@
 Usage:
     python tools/export_tflite.py <arch> <pth_path> <out_dir> [options]
 
-    arch: espcn_light | fsrcnn | srcnn
+    arch: espcn_light | fsrcnn | srcnn | edsr_tiny
 
 Options:
     --val_dir PATH      HR images for INT8 calibration (default: data/val/DIV2K_valid_HR)
@@ -17,6 +17,8 @@ Conversion backends:
                    PixelShuffle into 6D transposes unsupported by TFLite Micro;
                    onnx2tf maps it to DEPTH_TO_SPACE instead. Output is NHWC,
                    float32 IO, INT8 weights+activations.
+    edsr_tiny    — Keras (PyTorch weights → Keras → TF TFLiteConverter). res_scale
+                   absorbed into conv weights. Fully fused INT8; no hybrid tensors.
     fsrcnn       — litert_torch (PT2E dynamic quantizer). Outputs float32 TFLite
                    (INT8 not yet tested for this architecture).
     srcnn        — litert_torch. Outputs float32 TFLite only (INT8 not yet tested).
@@ -45,7 +47,7 @@ import torch.nn as nn
 
 sys.path.insert(0, ".")
 
-ARCHS = ["espcn_light", "fsrcnn", "srcnn"]
+ARCHS = ["espcn_light", "fsrcnn", "srcnn", "edsr_tiny"]
 SCALE = 2
 
 
@@ -73,6 +75,9 @@ def load_model(arch: str, pth_path: str) -> nn.Module:
     elif arch == "srcnn":
         from models.srcnn import SRCNN
         model = SRCNN(scale_factor=SCALE, num_channels=1)
+    elif arch == "edsr_tiny":
+        from models.edsr_tiny import EDSRTiny
+        model = EDSRTiny(scale_factor=SCALE, num_channels=1)
     else:
         sys.exit(f"Unknown arch '{arch}'. Choose from: {ARCHS}")
 
@@ -165,6 +170,126 @@ def _build_keras_srcnn(model: nn.Module, in_h: int, in_w: int):
     keras_model.get_layer("conv3").set_weights(
         [pt2tf(convs[2].weight), convs[2].bias.detach().numpy()])
     return keras_model
+
+
+def _build_keras_edsr_tiny(torch_model: nn.Module, tile_h: int, tile_w: int,
+                            scale: int = 2, num_feats: int = 32, num_blocks: int = 8,
+                            num_channels: int = 1):
+    """Build a Keras EDSR_Tiny with weights transferred from a PyTorch checkpoint.
+
+    res_scale=0.1 is absorbed into the second conv weight/bias of each ResBlock
+    to eliminate the runtime scalar Mul op (which the TF int8 quantizer can't fuse).
+    """
+    import tensorflow as tf
+
+    sd = {k: v.detach() for k, v in torch_model.state_dict().items()}
+
+    def pt2tf(w):  # PyTorch OIHW → Keras HWIO
+        return w.numpy().transpose(2, 3, 1, 0)
+
+    inp = tf.keras.Input(shape=(tile_h, tile_w, num_channels), batch_size=1, name="input")
+
+    head = tf.keras.layers.Conv2D(num_feats, 3, padding="same", name="head")(inp)
+
+    x = head
+    for i in range(num_blocks):
+        res = x
+        x = tf.keras.layers.Conv2D(num_feats, 3, padding="same", activation="relu",
+                                   name=f"res{i}_c1")(x)
+        x = tf.keras.layers.Conv2D(num_feats, 3, padding="same", name=f"res{i}_c2")(x)
+        x = tf.keras.layers.Add(name=f"res{i}_add")([res, x])
+
+    x = tf.keras.layers.Conv2D(num_feats, 3, padding="same", name="body_end")(x)
+    x = tf.keras.layers.Add(name="global_add")([head, x])
+
+    x = tf.keras.layers.Conv2D(num_channels * scale * scale, 3, padding="same",
+                                name="upsample_conv")(x)
+    x = tf.keras.layers.Lambda(lambda t: tf.nn.depth_to_space(t, scale),
+                                name="pixel_shuffle")(x)
+
+    keras_model = tf.keras.Model(inputs=inp, outputs=x)
+
+    RES_SCALE = 0.1
+    keras_model.get_layer("head").set_weights(
+        [pt2tf(sd["head.weight"]), sd["head.bias"].numpy()])
+    for i in range(num_blocks):
+        keras_model.get_layer(f"res{i}_c1").set_weights([
+            pt2tf(sd[f"body.{i}.block.0.weight"]),
+            sd[f"body.{i}.block.0.bias"].numpy(),
+        ])
+        # Bake res_scale into second conv so no runtime Mul op is needed
+        keras_model.get_layer(f"res{i}_c2").set_weights([
+            pt2tf(sd[f"body.{i}.block.2.weight"]) * RES_SCALE,
+            sd[f"body.{i}.block.2.bias"].numpy() * RES_SCALE,
+        ])
+    keras_model.get_layer("body_end").set_weights(
+        [pt2tf(sd["body_end.weight"]), sd["body_end.bias"].numpy()])
+    keras_model.get_layer("upsample_conv").set_weights(
+        [pt2tf(sd["upsample.0.weight"]), sd["upsample.0.bias"].numpy()])
+
+    return keras_model
+
+
+def export_edsr_tiny_via_keras(model: nn.Module, arch: str, out_dir: Path,
+                                do_int8: bool, val_dir: str,
+                                tile_h: int, tile_w: int, no_c_array: bool):
+    """Export EDSR_Tiny to TFLite via Keras + TF converter.
+
+    onnx2tf int8 quantization leaves Add/DepthToSpace activations as float32
+    (hybrid model) which espressif TFLite Micro rejects. The Keras path produces
+    fully fused int8 ops with QUANTIZE/DEQUANTIZE only at the IO boundary.
+    """
+    import tensorflow as tf
+    import numpy as np
+
+    keras_model = _build_keras_edsr_tiny(model, tile_h, tile_w)
+
+    rng = np.random.default_rng(42)
+    sample_np = rng.random((1, tile_h, tile_w, 1)).astype(np.float32)
+    with torch.no_grad():
+        pt_out = model(torch.from_numpy(
+            sample_np.transpose(0, 3, 1, 2))).numpy().transpose(0, 2, 3, 1)
+    keras_out = keras_model(sample_np).numpy()
+    diff = float(np.abs(pt_out - keras_out).max())
+    label = "OK" if diff < 1e-3 else "WARN — check weight transfer"
+    print(f"  PyTorch/Keras sanity diff: {diff:.2e}  ({label})")
+
+    print("\n[float32]")
+    converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+    f32_bytes = converter.convert()
+    f32_path = out_dir / f"{arch}_float32.tflite"
+    f32_path.write_bytes(f32_bytes)
+    print(f"  float32 TFLite → {f32_path.name}  ({f32_path.stat().st_size / 1024:.1f} KB)")
+    if not no_c_array:
+        generate_c_array(f32_path, out_dir / f"{arch}_float32_data.h",
+                         f"{arch}_float32_tflite")
+
+    if do_int8:
+        print("\n[int8]")
+        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w))
+        if not batches:
+            print(f"  [WARN] no calibration images in {val_dir} — skipping INT8")
+            return
+        calib_nhwc = [b.transpose(0, 2, 3, 1).astype(np.float32) for b in batches]
+        print(f"  Calibrating with {len(calib_nhwc)} samples.")
+
+        def representative_dataset():
+            for b in calib_nhwc:
+                yield [b]
+
+        converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.representative_dataset = representative_dataset
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+        converter.inference_input_type = tf.float32
+        converter.inference_output_type = tf.float32
+        int8_bytes = converter.convert()
+        int8_path = out_dir / f"{arch}_int8.tflite"
+        int8_path.write_bytes(int8_bytes)
+        print(f"  INT8 TFLite    → {int8_path.name}  ({int8_path.stat().st_size / 1024:.1f} KB)")
+        if not no_c_array:
+            generate_c_array(int8_path, out_dir / f"{arch}_int8_data.h",
+                             f"{arch}_int8_tflite")
 
 
 def export_srcnn_via_keras(model: nn.Module, arch: str, out_dir: Path,
@@ -359,7 +484,7 @@ def export_via_onnx2tf(model: nn.Module, sample_input: torch.Tensor,
         cleanup()
     if err:
         raise err
-    if not float32_produced or not (do_int8 and int8_produced):
+    if not float32_produced or (do_int8 and not int8_produced):
         sys.exit("FATAL: onnx2tf produced corrupt or empty TFLite models. "
                  "Check onnx2tf logs above.")
 
@@ -417,6 +542,10 @@ def main():
         # onnx2tf path: handles PixelShuffle → DEPTH_TO_SPACE correctly
         export_via_onnx2tf(model, sample_input, args.arch, out_dir,
                            args.int8, args.val_dir, tile_h, tile_w, args.no_c_array)
+    elif args.arch == "edsr_tiny":
+        # Keras path: onnx2tf int8 produces hybrid models (espressif rejects them)
+        export_edsr_tiny_via_keras(model, args.arch, out_dir,
+                                   args.int8, args.val_dir, tile_h, tile_w, args.no_c_array)
     elif args.arch == "srcnn":
         # Keras path: litert-torch produces fake-quant / wrong ops for SRCNN;
         # Keras→TF converter yields properly fused int8 CONV_2D with int32 biases.

@@ -23,7 +23,7 @@ def main():
     parser.add_argument("out_h")
     parser.add_argument("--size", nargs=2, type=int, default=[64, 64], metavar=("H", "W"))
     parser.add_argument("--arch", default="espcn_light",
-                        choices=["espcn_light", "fsrcnn", "srcnn"],
+                        choices=["espcn_light", "fsrcnn", "srcnn", "edsr_tiny"],
                         help="Target arch — SRCNN input is bicubic pre-upsampled")
     parser.add_argument("--center", action="store_true",
                         help="Crop from image center instead of top-left")
