@@ -39,3 +39,18 @@ Thumbs.db
 .gsd/
 .gsd-id
 .bg-shell/
+
+# --- Build artifacts ---
+n_verbose/
+sweep_logs/
+
+# --- Generated files (regenerate, do not hand-edit) ---
+esp32_firmware/sisr_inference/*_data.h
+esp32_firmware/sisr_inference/test_image.h
+
+# --- Arduino framework (restored by platformio cli) ---
+esp32_firmware/lib/
+
+# Agent files
+CLAUDE.md
+AGENTS.md

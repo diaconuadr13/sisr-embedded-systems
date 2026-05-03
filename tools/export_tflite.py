@@ -12,6 +12,15 @@ Options:
     --int8              Also produce INT8 quantized model
     --no_c_array        Skip generating C header files
 
+Conversion backends:
+    espcn_light  — onnx2tf (PyTorch → ONNX → TFLite). litert-torch decomposes
+                   PixelShuffle into 6D transposes unsupported by TFLite Micro;
+                   onnx2tf maps it to DEPTH_TO_SPACE instead. Output is NHWC,
+                   float32 IO, INT8 weights+activations.
+    fsrcnn       — litert_torch (PT2E dynamic quantizer). Outputs float32 TFLite
+                   (INT8 not yet tested for this architecture).
+    srcnn        — litert_torch. Outputs float32 TFLite only (INT8 not yet tested).
+
 Note on SRCNN:
     SRCNN applies bicubic upsampling inside forward(). TFLite has no bicubic resize op,
     so the exported model strips that step — the input must be pre-upsampled by the host
@@ -19,8 +28,9 @@ Note on SRCNN:
     the actual model input will be tile*scale (HR dimensions).
 
 Requirements:
-    pip install litert-torch
-    pip install tensorflow   # only needed for --int8
+    pip install litert-torch              # fsrcnn, srcnn
+    pip install onnx onnxruntime onnx2tf   # espcn_light
+    pip install tensorflow                 # --int8 with espcn_light
 """
 
 import sys
@@ -132,27 +142,102 @@ def export_float32(model: nn.Module, sample_input: torch.Tensor, out_path: Path)
     print(f"  float32 TFLite → {out_path.name}  ({kb:.1f} KB)")
 
 
+def _build_keras_srcnn(model: nn.Module, in_h: int, in_w: int):
+    """Reconstruct SRCNN as a Keras model with fixed input shape and PyTorch weights."""
+    import tensorflow as tf
+    convs = [m for m in model.modules() if isinstance(m, nn.Conv2d)]
+
+    def pt2tf(w):
+        return w.detach().numpy().transpose(2, 3, 1, 0)
+
+    inp = tf.keras.Input(shape=(in_h, in_w, 1), batch_size=1, name="input")
+    x = tf.keras.layers.Conv2D(convs[0].out_channels, convs[0].kernel_size[0],
+                                padding="same", activation="relu", name="conv1")(inp)
+    x = tf.keras.layers.Conv2D(convs[1].out_channels, convs[1].kernel_size[0],
+                                padding="same", activation="relu", name="conv2")(x)
+    x = tf.keras.layers.Conv2D(convs[2].out_channels, convs[2].kernel_size[0],
+                                padding="same", name="conv3")(x)
+    keras_model = tf.keras.Model(inp, x)
+    keras_model.get_layer("conv1").set_weights(
+        [pt2tf(convs[0].weight), convs[0].bias.detach().numpy()])
+    keras_model.get_layer("conv2").set_weights(
+        [pt2tf(convs[1].weight), convs[1].bias.detach().numpy()])
+    keras_model.get_layer("conv3").set_weights(
+        [pt2tf(convs[2].weight), convs[2].bias.detach().numpy()])
+    return keras_model
+
+
+def export_srcnn_via_keras(model: nn.Module, arch: str, out_dir: Path,
+                           do_int8: bool, val_dir: str,
+                           tile_h: int, tile_w: int, no_c_array: bool):
+    """Export SRCNN to TFLite via Keras + TF converter.
+
+    litert-torch decomposes SRCNN into DEPTHWISE_CONV_2D + TRANSPOSEs and
+    produces fake-quantized (QUANT/DEQUANT pairs) rather than fused int8 ops.
+    The Keras path goes PyTorch weights → Keras model → TFLite converter,
+    which correctly produces fully fused int8 CONV_2D ops with int32 biases.
+    """
+    import tensorflow as tf
+    import numpy as np
+
+    in_h, in_w = _input_shape(arch, tile_h, tile_w)
+    keras_model = _build_keras_srcnn(model, in_h, in_w)
+
+    print("\n[float32]")
+    converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+    f32_bytes = converter.convert()
+    f32_path = out_dir / f"{arch}_float32.tflite"
+    f32_path.write_bytes(f32_bytes)
+    print(f"  float32 TFLite → {f32_path.name}  ({f32_path.stat().st_size / 1024:.1f} KB)")
+    if not no_c_array:
+        generate_c_array(f32_path, out_dir / f"{arch}_float32_data.h", f"{arch}_float32_tflite")
+
+    if do_int8:
+        print("\n[int8]")
+        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w))
+        if not batches:
+            print(f"  [WARN] no calibration images in {val_dir} — skipping INT8")
+            return
+        calib_nhwc = [b.transpose(0, 2, 3, 1).astype(np.float32) for b in batches]
+        print(f"  Calibrating with {len(calib_nhwc)} samples.")
+
+        def representative_dataset():
+            for b in calib_nhwc:
+                yield [b]
+
+        converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
+        converter.optimizations = [tf.lite.Optimize.DEFAULT]
+        converter.representative_dataset = representative_dataset
+        converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+        converter.inference_input_type = tf.float32
+        converter.inference_output_type = tf.float32
+        int8_bytes = converter.convert()
+        int8_path = out_dir / f"{arch}_int8.tflite"
+        int8_path.write_bytes(int8_bytes)
+        print(f"  INT8 TFLite    → {int8_path.name}  ({int8_path.stat().st_size / 1024:.1f} KB)")
+        if not no_c_array:
+            generate_c_array(int8_path, out_dir / f"{arch}_int8_data.h", f"{arch}_int8_tflite")
+
+
 def export_int8(model: nn.Module, sample_input: torch.Tensor,
                 val_dir: str, arch: str, tile_h: int, tile_w: int,
                 out_path: Path):
-    """INT8 PTQ via PyTorch 2 Export + XNNPack quantizer, then litert-torch convert."""
+    """INT8 PTQ via litert_torch PT2EQuantizer + torchao calibration."""
     try:
         import litert_torch
-        from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
-        from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-            XNNPackQuantizer,
-            get_symmetric_quantization_config,
-        )
+        from litert_torch.quantize import pt2e_quantizer as ltq
+        from torchao.quantization.pt2e import quantize_pt2e
     except ImportError as e:
-        print(f"  [SKIP] INT8 requires litert-torch + PyTorch 2.x: {e}")
+        print(f"  [SKIP] INT8 requires litert-torch + torchao: {e}")
         return
 
     print("  Preparing model for INT8 quantization...")
-    quantizer = XNNPackQuantizer()
-    quantizer.set_global(get_symmetric_quantization_config())
+    quantizer = ltq.PT2EQuantizer().set_global(
+        ltq.get_symmetric_quantization_config(is_per_channel=False)
+    )
 
     exported = torch.export.export(model, (sample_input,))
-    m = prepare_pt2e(exported.module(), quantizer)
+    m = quantize_pt2e.prepare_pt2e(exported.module(), quantizer)
 
     print(f"  Calibrating on {val_dir} ...")
     n = 0
@@ -161,12 +246,122 @@ def export_int8(model: nn.Module, sample_input: torch.Tensor,
         n += 1
     print(f"  Calibrated with {n} samples.")
 
-    m = convert_pt2e(m)
+    m = quantize_pt2e.convert_pt2e(m, fold_quantize=False)
 
     edge_model = litert_torch.convert(m, (sample_input,))
     edge_model.export(str(out_path))
     kb = out_path.stat().st_size / 1024
     print(f"  INT8 TFLite    → {out_path.name}  ({kb:.1f} KB)")
+
+
+def export_via_onnx2tf(model: nn.Module, sample_input: torch.Tensor,
+                       arch: str, out_dir: Path, do_int8: bool,
+                       val_dir: str, tile_h: int, tile_w: int, no_c_array: bool):
+    """Export to TFLite via PyTorch → ONNX → onnx2tf.
+
+    Used for models with PixelShuffle (e.g. ESPCN_Light). litert-torch
+    decomposes PixelShuffle into 6D transposes that TFLite Micro can't handle;
+    onnx2tf maps it to a single DEPTH_TO_SPACE op. Output is NHWC, float32 IO.
+    """
+    try:
+        import onnx  # noqa: F401
+    except ImportError:
+        sys.exit("onnx2tf path requires: pip install onnx onnxruntime onnx2tf")
+
+    import tempfile, shutil, subprocess, numpy as np
+
+    tmp = Path(tempfile.mkdtemp())
+    onnx_path = tmp / f"{arch}.onnx"
+    try:
+        torch.onnx.export(model, sample_input, str(onnx_path), opset_version=13,
+                          input_names=["input"], output_names=["output"])
+    except Exception as e:
+        raise RuntimeError(f"torch.onnx.export failed for {arch}: {e}") from e
+    if not onnx_path.exists() or onnx_path.stat().st_size == 0:
+        raise RuntimeError(f"ONNX export produced empty file for {arch}")
+
+    def cleanup():
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    calib_path = None
+    if do_int8 and Path(val_dir).exists():
+        print(f"  Calibrating on {val_dir} ...")
+        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w))
+        if not batches:
+            print(f"  [WARN] no calibration images found in {val_dir} — producing float32 model only")
+        else:
+            calib = np.concatenate(batches, axis=0)  # [N, 1, H, W] — ONNX NCHW format
+            print(f"  Calibrated with {len(batches)} samples.")
+            calib_path = tmp / "calib.npy"
+            np.save(str(calib_path), calib)
+
+    cmd = [sys.executable, "-m", "onnx2tf", "-i", str(onnx_path), "-o", str(tmp)]
+    if do_int8 and calib_path:
+        cmd += ["-oiqt", "-qt", "per-channel",
+                "-cind", "input", str(calib_path), "[[0.0]]", "[[1.0]]"]
+
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  onnx2tf failed:\n{r.stderr[-800:]}")
+        return
+    float32_produced = False
+    int8_produced = False
+    err = None
+    try:
+        print("\n[float32]")
+        src = tmp / f"{arch}_float32.tflite"
+        if not src.exists():
+            # onnx2tf 3.x renames: look for alternative
+            candidates = list(tmp.glob("*_float32*.tflite")) + list(tmp.glob("*.tflite"))
+            src = candidates[0] if candidates else None
+        if src and src.exists() and src.stat().st_size > 0:
+            dst = out_dir / f"{arch}_float32.tflite"
+            shutil.copy2(str(src), str(dst))
+            print(f"  float32 TFLite → {dst.name}  ({dst.stat().st_size / 1024:.1f} KB)")
+            float32_produced = True
+            if not no_c_array:
+                generate_c_array(dst, out_dir / f"{arch}_float32_data.h",
+                                 f"{arch}_float32_tflite")
+        else:
+            raise RuntimeError(
+                f"onnx2tf did not produce a valid float32 TFLite model.\n"
+                f"  Expected: {src}\n"
+                f"  Contents of {tmp}: {list(tmp.iterdir()) if tmp.exists() else 'missing'}\n"
+                f"  Check onnx2tf logs above for errors."
+            )
+
+        if do_int8:
+            print("\n[int8]")
+            # full_integer_quant: all tensors INT8 (required by espressif TFLite Micro —
+            # it rejects hybrid models where weights are INT8 but activations are float32)
+            src_int = tmp / f"{arch}_full_integer_quant.tflite"
+            if not src_int.exists():
+                candidates = [f for f in list(tmp.glob("*.tflite")) if str(f) != str(src)]
+                src_int = candidates[0] if candidates else None
+            if src_int and src_int.exists() and src_int.stat().st_size > 0:
+                dst = out_dir / f"{arch}_int8.tflite"
+                shutil.copy2(str(src_int), str(dst))
+                print(f"  INT8 TFLite    → {dst.name}  ({dst.stat().st_size / 1024:.1f} KB)")
+                int8_produced = True
+                if not no_c_array:
+                    generate_c_array(dst, out_dir / f"{arch}_int8_data.h",
+                                     f"{arch}_int8_tflite")
+            else:
+                raise RuntimeError(
+                    f"onnx2tf did not produce an INT8 TFLite model.\n"
+                    f"  Expected: {src_int}\n"
+                    f"  Contents of {tmp}: {list(tmp.iterdir())}\n"
+                    f"  Check onnx2tf logs above (calibration data must have >=1 images)."
+                )
+    except Exception as e:
+        err = e
+    finally:
+        cleanup()
+    if err:
+        raise err
+    if not float32_produced or not (do_int8 and int8_produced):
+        sys.exit("FATAL: onnx2tf produced corrupt or empty TFLite models. "
+                 "Check onnx2tf logs above.")
 
 
 def generate_c_array(tflite_path: Path, out_h_path: Path, var_name: str):
@@ -203,15 +398,6 @@ def main():
                         help="Skip generating C header files")
     args = parser.parse_args()
 
-    try:
-        import litert_torch  # noqa: F401
-    except ImportError:
-        sys.exit(
-            "litert_torch not installed.\n"
-            "  pip install litert-torch\n"
-            "See: https://github.com/google-ai-edge/litert-torch"
-        )
-
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -227,26 +413,45 @@ def main():
     model = load_model(args.arch, args.pth_path)
     sample_input = torch.zeros(1, 1, in_h, in_w)
 
-    # Float32
-    float_out = out_dir / f"{args.arch}_float32.tflite"
-    print("\n[float32]")
-    export_float32(model, sample_input, float_out)
-    if not args.no_c_array:
-        var = f"{args.arch}_float32_tflite"
-        generate_c_array(float_out, out_dir / f"{args.arch}_float32_data.h", var)
+    if args.arch == "espcn_light":
+        # onnx2tf path: handles PixelShuffle → DEPTH_TO_SPACE correctly
+        export_via_onnx2tf(model, sample_input, args.arch, out_dir,
+                           args.int8, args.val_dir, tile_h, tile_w, args.no_c_array)
+    elif args.arch == "srcnn":
+        # Keras path: litert-torch produces fake-quant / wrong ops for SRCNN;
+        # Keras→TF converter yields properly fused int8 CONV_2D with int32 biases.
+        export_srcnn_via_keras(model, args.arch, out_dir, args.int8,
+                               args.val_dir, tile_h, tile_w, args.no_c_array)
+    else:
+        try:
+            import litert_torch  # noqa: F401
+        except ImportError:
+            sys.exit(
+                "litert_torch not installed.\n"
+                "  pip install litert-torch\n"
+                "See: https://github.com/google-ai-edge/litert-torch"
+            )
 
-    # INT8
-    if args.int8:
-        print("\n[int8]")
-        if not Path(args.val_dir).exists():
-            print(f"  [WARN] val_dir not found: {args.val_dir} — skipping INT8")
-        else:
-            int8_out = out_dir / f"{args.arch}_int8.tflite"
-            export_int8(model, sample_input, args.val_dir, args.arch,
-                        tile_h, tile_w, int8_out)
-            if not args.no_c_array and int8_out.exists():
-                var = f"{args.arch}_int8_tflite"
-                generate_c_array(int8_out, out_dir / f"{args.arch}_int8_data.h", var)
+        # Float32
+        float_out = out_dir / f"{args.arch}_float32.tflite"
+        print("\n[float32]")
+        export_float32(model, sample_input, float_out)
+        if not args.no_c_array:
+            var = f"{args.arch}_float32_tflite"
+            generate_c_array(float_out, out_dir / f"{args.arch}_float32_data.h", var)
+
+        # INT8
+        if args.int8:
+            print("\n[int8]")
+            if not Path(args.val_dir).exists():
+                print(f"  [WARN] val_dir not found: {args.val_dir} — skipping INT8")
+            else:
+                int8_out = out_dir / f"{args.arch}_int8.tflite"
+                export_int8(model, sample_input, args.val_dir, args.arch,
+                            tile_h, tile_w, int8_out)
+                if not args.no_c_array and int8_out.exists():
+                    var = f"{args.arch}_int8_tflite"
+                    generate_c_array(int8_out, out_dir / f"{args.arch}_int8_data.h", var)
 
     print("\nDone.")
 
