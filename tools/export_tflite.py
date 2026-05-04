@@ -48,7 +48,6 @@ import torch.nn as nn
 sys.path.insert(0, ".")
 
 ARCHS = ["espcn_light", "fsrcnn", "srcnn", "edsr_tiny"]
-SCALE = 2
 
 
 class SRCNNNoUpsample(nn.Module):
@@ -65,47 +64,61 @@ class SRCNNNoUpsample(nn.Module):
         return self.layers(x)
 
 
-def load_model(arch: str, pth_path: str) -> nn.Module:
+def _detect_channels(state_dict: dict) -> int:
+    for key, tensor in state_dict.items():
+        if tensor.ndim == 4:
+            return tensor.shape[1]
+    return 3
+
+
+def load_model(arch: str, pth_path: str):
+    """Load checkpoint, detect channels/scale, return (model, scale, num_channels)."""
+    state = torch.load(pth_path, map_location="cpu", weights_only=True)
+    if isinstance(state, dict) and "model_state_dict" in state:
+        state_dict = state["model_state_dict"]
+    elif isinstance(state, dict) and "state_dict" in state:
+        state_dict = state["state_dict"]
+    else:
+        state_dict = state
+
+    num_channels = _detect_channels(state_dict)
+    scale = int(state.get("scale", 2)) if isinstance(state, dict) else 2
+
     if arch == "espcn_light":
         from models.espcn_light import ESPCNLight
-        model = ESPCNLight(scale_factor=SCALE, num_channels=1)
+        model = ESPCNLight(scale_factor=scale, num_channels=num_channels)
     elif arch == "fsrcnn":
         from models.fsrcnn import FSRCNN
-        model = FSRCNN(scale_factor=SCALE, num_channels=1)
+        model = FSRCNN(scale_factor=scale, num_channels=num_channels)
     elif arch == "srcnn":
         from models.srcnn import SRCNN
-        model = SRCNN(scale_factor=SCALE, num_channels=1)
+        model = SRCNN(scale_factor=scale, num_channels=num_channels)
     elif arch == "edsr_tiny":
         from models.edsr_tiny import EDSRTiny
-        model = EDSRTiny(scale_factor=SCALE, num_channels=1)
+        model = EDSRTiny(scale_factor=scale, num_channels=num_channels)
     else:
         sys.exit(f"Unknown arch '{arch}'. Choose from: {ARCHS}")
 
-    state = torch.load(pth_path, map_location="cpu", weights_only=True)
-    if isinstance(state, dict) and "model_state_dict" in state:
-        state = state["model_state_dict"]
-    elif isinstance(state, dict) and "state_dict" in state:
-        state = state["state_dict"]
-    model.load_state_dict(state)
+    model.load_state_dict(state_dict)
     model.eval()
 
     if arch == "srcnn":
         model = SRCNNNoUpsample(model)
 
-    return model
+    return model, scale, num_channels
 
 
-def _input_shape(arch: str, tile_h: int, tile_w: int):
+def _input_shape(arch: str, tile_h: int, tile_w: int, scale: int):
     """Return (H, W) of the model's expected input tensor."""
     if arch == "srcnn":
-        return tile_h * SCALE, tile_w * SCALE
+        return tile_h * scale, tile_w * scale
     return tile_h, tile_w
 
 
 def _sample_inputs_from_val(val_dir: str, arch: str, tile_h: int, tile_w: int,
-                             n_samples: int = 100):
+                             scale: int, n_samples: int = 100):
     """Yield (1,1,H,W) float32 numpy arrays from val images for calibration."""
-    in_h, in_w = _input_shape(arch, tile_h, tile_w)
+    in_h, in_w = _input_shape(arch, tile_h, tile_w, scale)
     val_path = Path(val_dir)
     exts = {".png", ".jpg", ".jpeg", ".bmp"}
     images = sorted(p for p in val_path.iterdir()
@@ -117,8 +130,7 @@ def _sample_inputs_from_val(val_dir: str, arch: str, tile_h: int, tile_w: int,
             continue
         h, w = img.shape
 
-        # Ensure image is large enough for the HR crop
-        crop_h, crop_w = tile_h * SCALE, tile_w * SCALE
+        crop_h, crop_w = tile_h * scale, tile_w * scale
         if h < crop_h or w < crop_w:
             img = cv2.resize(img, (max(w, crop_w), max(h, crop_h)),
                              interpolation=cv2.INTER_CUBIC)
@@ -129,7 +141,6 @@ def _sample_inputs_from_val(val_dir: str, arch: str, tile_h: int, tile_w: int,
         hr_crop = img[top:top + crop_h, left:left + crop_w]
 
         if arch == "srcnn":
-            # Simulate host bicubic upsample: LR → bicubic → HR size
             lr = cv2.resize(hr_crop, (tile_w, tile_h), interpolation=cv2.INTER_CUBIC)
             inp = cv2.resize(lr, (in_w, in_h), interpolation=cv2.INTER_CUBIC)
         else:
@@ -147,7 +158,7 @@ def export_float32(model: nn.Module, sample_input: torch.Tensor, out_path: Path)
     print(f"  float32 TFLite → {out_path.name}  ({kb:.1f} KB)")
 
 
-def _build_keras_srcnn(model: nn.Module, in_h: int, in_w: int):
+def _build_keras_srcnn(model: nn.Module, in_h: int, in_w: int, num_channels: int = 1):
     """Reconstruct SRCNN as a Keras model with fixed input shape and PyTorch weights."""
     import tensorflow as tf
     convs = [m for m in model.modules() if isinstance(m, nn.Conv2d)]
@@ -155,7 +166,7 @@ def _build_keras_srcnn(model: nn.Module, in_h: int, in_w: int):
     def pt2tf(w):
         return w.detach().numpy().transpose(2, 3, 1, 0)
 
-    inp = tf.keras.Input(shape=(in_h, in_w, 1), batch_size=1, name="input")
+    inp = tf.keras.Input(shape=(in_h, in_w, num_channels), batch_size=1, name="input")
     x = tf.keras.layers.Conv2D(convs[0].out_channels, convs[0].kernel_size[0],
                                 padding="same", activation="relu", name="conv1")(inp)
     x = tf.keras.layers.Conv2D(convs[1].out_channels, convs[1].kernel_size[0],
@@ -232,7 +243,8 @@ def _build_keras_edsr_tiny(torch_model: nn.Module, tile_h: int, tile_w: int,
 
 def export_edsr_tiny_via_keras(model: nn.Module, arch: str, out_dir: Path,
                                 do_int8: bool, val_dir: str,
-                                tile_h: int, tile_w: int, no_c_array: bool):
+                                tile_h: int, tile_w: int, no_c_array: bool,
+                                scale: int, num_channels: int):
     """Export EDSR_Tiny to TFLite via Keras + TF converter.
 
     onnx2tf int8 quantization leaves Add/DepthToSpace activations as float32
@@ -242,10 +254,10 @@ def export_edsr_tiny_via_keras(model: nn.Module, arch: str, out_dir: Path,
     import tensorflow as tf
     import numpy as np
 
-    keras_model = _build_keras_edsr_tiny(model, tile_h, tile_w)
+    keras_model = _build_keras_edsr_tiny(model, tile_h, tile_w, num_channels=num_channels)
 
     rng = np.random.default_rng(42)
-    sample_np = rng.random((1, tile_h, tile_w, 1)).astype(np.float32)
+    sample_np = rng.random((1, tile_h, tile_w, num_channels)).astype(np.float32)
     with torch.no_grad():
         pt_out = model(torch.from_numpy(
             sample_np.transpose(0, 3, 1, 2))).numpy().transpose(0, 2, 3, 1)
@@ -266,7 +278,7 @@ def export_edsr_tiny_via_keras(model: nn.Module, arch: str, out_dir: Path,
 
     if do_int8:
         print("\n[int8]")
-        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w))
+        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w, scale))
         if not batches:
             print(f"  [WARN] no calibration images in {val_dir} — skipping INT8")
             return
@@ -294,7 +306,8 @@ def export_edsr_tiny_via_keras(model: nn.Module, arch: str, out_dir: Path,
 
 def export_srcnn_via_keras(model: nn.Module, arch: str, out_dir: Path,
                            do_int8: bool, val_dir: str,
-                           tile_h: int, tile_w: int, no_c_array: bool):
+                           tile_h: int, tile_w: int, no_c_array: bool,
+                           scale: int, num_channels: int):
     """Export SRCNN to TFLite via Keras + TF converter.
 
     litert-torch decomposes SRCNN into DEPTHWISE_CONV_2D + TRANSPOSEs and
@@ -305,8 +318,8 @@ def export_srcnn_via_keras(model: nn.Module, arch: str, out_dir: Path,
     import tensorflow as tf
     import numpy as np
 
-    in_h, in_w = _input_shape(arch, tile_h, tile_w)
-    keras_model = _build_keras_srcnn(model, in_h, in_w)
+    in_h, in_w = _input_shape(arch, tile_h, tile_w, scale)
+    keras_model = _build_keras_srcnn(model, in_h, in_w, num_channels)
 
     print("\n[float32]")
     converter = tf.lite.TFLiteConverter.from_keras_model(keras_model)
@@ -319,7 +332,7 @@ def export_srcnn_via_keras(model: nn.Module, arch: str, out_dir: Path,
 
     if do_int8:
         print("\n[int8]")
-        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w))
+        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w, scale))
         if not batches:
             print(f"  [WARN] no calibration images in {val_dir} — skipping INT8")
             return
@@ -346,7 +359,7 @@ def export_srcnn_via_keras(model: nn.Module, arch: str, out_dir: Path,
 
 def export_int8(model: nn.Module, sample_input: torch.Tensor,
                 val_dir: str, arch: str, tile_h: int, tile_w: int,
-                out_path: Path):
+                out_path: Path, scale: int):
     """INT8 PTQ via litert_torch PT2EQuantizer + torchao calibration."""
     try:
         import litert_torch
@@ -366,7 +379,7 @@ def export_int8(model: nn.Module, sample_input: torch.Tensor,
 
     print(f"  Calibrating on {val_dir} ...")
     n = 0
-    for batch in _sample_inputs_from_val(val_dir, arch, tile_h, tile_w):
+    for batch in _sample_inputs_from_val(val_dir, arch, tile_h, tile_w, scale):
         m(torch.from_numpy(batch))
         n += 1
     print(f"  Calibrated with {n} samples.")
@@ -381,7 +394,8 @@ def export_int8(model: nn.Module, sample_input: torch.Tensor,
 
 def export_via_onnx2tf(model: nn.Module, sample_input: torch.Tensor,
                        arch: str, out_dir: Path, do_int8: bool,
-                       val_dir: str, tile_h: int, tile_w: int, no_c_array: bool):
+                       val_dir: str, tile_h: int, tile_w: int, no_c_array: bool,
+                       scale: int):
     """Export to TFLite via PyTorch → ONNX → onnx2tf.
 
     Used for models with PixelShuffle (e.g. ESPCN_Light). litert-torch
@@ -411,7 +425,7 @@ def export_via_onnx2tf(model: nn.Module, sample_input: torch.Tensor,
     calib_path = None
     if do_int8 and Path(val_dir).exists():
         print(f"  Calibrating on {val_dir} ...")
-        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w))
+        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w, scale))
         if not batches:
             print(f"  [WARN] no calibration images found in {val_dir} — producing float32 model only")
         else:
@@ -527,30 +541,35 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     tile_h, tile_w = args.tile
-    in_h, in_w = _input_shape(args.arch, tile_h, tile_w)
+    model, scale, num_channels = load_model(args.arch, args.pth_path)
+    in_h, in_w = _input_shape(args.arch, tile_h, tile_w, scale)
 
     print(f"\nArch:       {args.arch}")
     print(f"Checkpoint: {args.pth_path}")
+    print(f"Channels:   {num_channels}")
+    print(f"Scale:      {scale}")
     print(f"Tile (LR):  {tile_h}×{tile_w}  →  model input: {in_h}×{in_w}")
     if args.arch == "srcnn":
         print("  Note: SRCNN bicubic upsample stripped — host must pre-upscale input")
 
-    model = load_model(args.arch, args.pth_path)
-    sample_input = torch.zeros(1, 1, in_h, in_w)
+    sample_input = torch.zeros(1, num_channels, in_h, in_w)
 
     if args.arch == "espcn_light":
         # onnx2tf path: handles PixelShuffle → DEPTH_TO_SPACE correctly
         export_via_onnx2tf(model, sample_input, args.arch, out_dir,
-                           args.int8, args.val_dir, tile_h, tile_w, args.no_c_array)
+                           args.int8, args.val_dir, tile_h, tile_w, args.no_c_array,
+                           scale)
     elif args.arch == "edsr_tiny":
         # Keras path: onnx2tf int8 produces hybrid models (espressif rejects them)
         export_edsr_tiny_via_keras(model, args.arch, out_dir,
-                                   args.int8, args.val_dir, tile_h, tile_w, args.no_c_array)
+                                   args.int8, args.val_dir, tile_h, tile_w, args.no_c_array,
+                                   scale, num_channels)
     elif args.arch == "srcnn":
         # Keras path: litert-torch produces fake-quant / wrong ops for SRCNN;
         # Keras→TF converter yields properly fused int8 CONV_2D with int32 biases.
         export_srcnn_via_keras(model, args.arch, out_dir, args.int8,
-                               args.val_dir, tile_h, tile_w, args.no_c_array)
+                               args.val_dir, tile_h, tile_w, args.no_c_array,
+                               scale, num_channels)
     else:
         try:
             import litert_torch  # noqa: F401
@@ -577,7 +596,7 @@ def main():
             else:
                 int8_out = out_dir / f"{args.arch}_int8.tflite"
                 export_int8(model, sample_input, args.val_dir, args.arch,
-                            tile_h, tile_w, int8_out)
+                            tile_h, tile_w, int8_out, scale)
                 if not args.no_c_array and int8_out.exists():
                     var = f"{args.arch}_int8_tflite"
                     generate_c_array(int8_out, out_dir / f"{args.arch}_int8_data.h", var)
