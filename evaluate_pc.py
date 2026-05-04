@@ -7,10 +7,12 @@ from typing import Any, Dict, Tuple
 
 import torch
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from models import get_model, list_models
 from utils.device import configure_runtime, resolve_device
 from utils.dataset import SISRDataset
+from utils.metrics import calculate_psnr, calculate_ssim
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,7 +101,7 @@ def main() -> None:
     total_images = 0
 
     with torch.no_grad():
-        warmup_lr, _ = next(iter(val_loader))
+        warmup_lr, warmup_hr = next(iter(val_loader))
         warmup_lr = warmup_lr.to(device, non_blocking=True)
         if device.type == "cuda":
             torch.cuda.synchronize(device)
@@ -109,7 +111,7 @@ def main() -> None:
             torch.cuda.synchronize(device)
 
     with torch.no_grad():
-        for lr_imgs, _ in val_loader:
+        for lr_imgs, hr_imgs in val_loader:
             lr_imgs = lr_imgs.to(device, non_blocking=True)
 
             if device.type == "cuda":
@@ -130,6 +132,27 @@ def main() -> None:
 
     print(f"Average Inference Time (ms): {avg_time_ms:.4f}")
     print(f"FPS: {avg_fps:.4f}")
+
+    # --- Metrics ---
+    print("\n[eval] Computing PSNR/SSIM on validation set...")
+    total_psnr = 0.0
+    total_ssim = 0.0
+    metric_count = 0
+    with torch.no_grad():
+        for lr_imgs, hr_imgs in tqdm(val_loader, desc="metrics"):
+            lr_imgs = lr_imgs.to(device, non_blocking=True)
+            hr_imgs = hr_imgs.to(device, non_blocking=True)
+            with autocast_context(use_amp):
+                sr_imgs = torch.clamp(model(lr_imgs), 0.0, 1.0)
+            for sr_img, hr_img in zip(sr_imgs, hr_imgs):
+                total_psnr += calculate_psnr(sr_img, hr_img)
+                total_ssim += calculate_ssim(sr_img, hr_img)
+                metric_count += 1
+
+    avg_psnr = total_psnr / max(metric_count, 1)
+    avg_ssim = total_ssim / max(metric_count, 1)
+    print(f"Val PSNR: {avg_psnr:.4f} dB")
+    print(f"Val SSIM: {avg_ssim:.4f}")
 
 
 if __name__ == "__main__":
