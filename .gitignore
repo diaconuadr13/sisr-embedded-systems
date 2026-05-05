@@ -54,3 +54,5 @@ esp32_firmware/lib/
 # Agent files
 CLAUDE.md
 AGENTS.md
+.opencode
+opencode.jsonc

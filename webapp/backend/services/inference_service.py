@@ -77,7 +77,7 @@ def _load_model(ckpt_path: Path, device_str: str):
     if cached is not None:
         return cached
 
-    ckpt = torch.load(ckpt_path, map_location="cpu")
+    ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
     arch, scale = _resolve_checkpoint_metadata(ckpt_path, ckpt)
 
     device = resolve_device(device_str)
