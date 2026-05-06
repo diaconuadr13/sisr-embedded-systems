@@ -1,0 +1,13 @@
+model_name: "ESPCN_Micro_gray_x2"
+arch: "ESPCN_Micro"
+dataset_name: "DIV2K"
+hr_dir: "data/train/DIV2K_train_HR"
+val_dir: "data/val/DIV2K_valid_HR"
+scale: 2
+grayscale: true
+batch_size: 64
+num_workers: 8
+epochs: 100
+lr: 0.001
+device: "auto"
+amp: true

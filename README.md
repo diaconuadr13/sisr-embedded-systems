@@ -16,6 +16,7 @@ Lightweight CNN architectures (ESPCN, FSRCNN, ESPCN-Light) trained and benchmark
 │   ├── __init__.py           # Model factory (get_model / MODEL_REGISTRY)
 │   ├── espcn.py              # ESPCN (Shi et al., 2016)
 │   ├── espcn_light.py        # ESPCN-Light (halved channels, embedded target)
+│   ├── espcn_micro.py        # ESPCN-Micro (microcontroller grayscale target)
 │   └── fsrcnn.py             # FSRCNN (Dong et al., 2016)
 ├── utils/
 │   ├── dataset.py            # SISRDataset (HR patch extraction + LR downsampling)
@@ -45,6 +46,9 @@ python plot_metrics.py --exp_dir runs/<model_name>/<dataset>/exp_YYYYMMDD_HHMMSS
 
 # 6. Profile inference speed
 python evaluate_pc.py --weights runs/.../best_model.pth --val_dir data/val/DIV2K_valid_HR --device cuda --amp
+
+# Smallest grayscale microcontroller-targeted run
+python train.py --config configs/train_espcn_micro_gray_x2.yaml
 ```
 
 ## Supported Architectures
@@ -53,6 +57,7 @@ python evaluate_pc.py --weights runs/.../best_model.pth --val_dir data/val/DIV2K
 |---|---|---|
 | `ESPCN` | 26,796 | Sub-pixel convolution (Shi et al., CVPR 2016) |
 | `ESPCN_Light` | 8,796 | Halved channel widths for edge deployment |
+| `ESPCN_Micro` | <2,000 | Tiny grayscale sub-pixel CNN for microcontroller-class tests |
 | `FSRCNN` | 24,683 | Deconvolution-based (Dong et al., ECCV 2016) |
 
 ## Sweep Configuration
