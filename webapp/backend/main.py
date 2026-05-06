@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import RUNS_DIR, STATIC_DIR, WEBAPP_DATA_DIR
-from backend.api import architectures, benchmark, compare, experiments, export, inference, jobs, notes, runs, sweeps
+from backend.api import architectures, benchmark, compare, deployment, experiments, export, inference, jobs, notes, runs, sweeps
 from backend.services import job_manager, storage
 
 
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
 
     app.include_router(runs.router)
     app.include_router(compare.router)
+    app.include_router(deployment.router)
     app.include_router(architectures.router)
     app.include_router(notes.router)
     app.include_router(experiments.router)

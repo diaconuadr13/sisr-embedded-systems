@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Deployment Metrics — SISR Thesis Manager{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <h1>Deployment Metrics</h1>
+    <p class="muted">Read-only reports from <code>{{ reports_dir }}</code>.</p>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header">
+    <h2>Reports</h2>
+    <span class="muted small">{{ reports|length }} report{{ '' if reports|length == 1 else 's' }}</span>
+  </div>
+  {% if reports %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Report</th>
+        <th>Arch</th>
+        <th>Tile</th>
+        <th>Target</th>
+        <th>Inference</th>
+        <th>MACs</th>
+        <th>MOPS/W</th>
+        <th>Energy</th>
+        <th>PSNR gain</th>
+        <th>Warnings</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in reports %}
+      <tr>
+        <td><code>{{ r.filename }}</code></td>
+        <td>{{ r.arch }}</td>
+        <td>
+          {% if r.input_tile and r.output_tile %}
+            {{ r.input_tile[0] }}x{{ r.input_tile[1] }} → {{ r.output_tile[0] }}x{{ r.output_tile[1] }}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td>{{ r.target or '—' }}</td>
+        <td>{% if r.inference_ms is not none %}{{ "%.2f"|format(r.inference_ms) }} ms{% else %}—{% endif %}</td>
+        <td>{% if r.macs is not none %}{{ "{:,}".format(r.macs) }}{% else %}—{% endif %}</td>
+        <td>{% if r.mops_per_watt is not none %}{{ "%.2f"|format(r.mops_per_watt) }}{% else %}—{% endif %}</td>
+        <td>{% if r.energy_per_inference_mj is not none %}{{ "%.2f"|format(r.energy_per_inference_mj) }} mJ{% else %}—{% endif %}</td>
+        <td>{% if r.psnr_gain is not none %}{{ "%.2f"|format(r.psnr_gain) }} dB{% else %}—{% endif %}</td>
+        <td>
+          {% if r.warnings %}
+            {% for warning in r.warnings %}
+              <span class="chip">{{ warning }}</span>
+            {% endfor %}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No deployment metric reports found yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

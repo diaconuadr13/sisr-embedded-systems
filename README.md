@@ -98,3 +98,36 @@ experiments:
 - **SSIM** – Structural Similarity Index
 - **Inference time** (ms/image) and **FPS**
 - **Parameter count** and memory footprint
+
+## Deployment Metrics
+
+Deployment reports combine checkpoint metadata, tile dimensions, optional validation-patch quality metrics, optional ESP32 runtime logs, and optional power measurements.
+
+```bash
+python tools/collect_deployment_metrics.py \
+  --checkpoint runs/ESPCN_Light_gray_x2/Flickr2K/exp_YYYYMMDD_HHMMSS/best_model.pth \
+  --tile 8 8 \
+  --val-dir data/val/DIV2K_valid_HR \
+  --board-log esp32_benchmark.log \
+  --voltage 3.3 \
+  --idle-current-ma 48 \
+  --inference-current-ma 92 \
+  --profile-macs \
+  --output runs/.../deployment_metrics_8x8.json
+```
+
+The board log can stay simple:
+
+```text
+target=esp32
+tile=8x8
+scale=2
+inference_ms=142.7
+free_heap_before=180224
+free_heap_after=96320
+sample_ms=141.9
+sample_ms=142.8
+sample_ms=143.1
+```
+
+Power-derived fields such as energy per inference, energy per output pixel, and MOPS/W are calculated on the PC after measurement.

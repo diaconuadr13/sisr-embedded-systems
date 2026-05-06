@@ -13,6 +13,7 @@ data/
 # --- Experiment outputs ---
 runs/
 sweep_logs/
+reports/deployment_metrics/
 
 # --- Model weights ---
 *.pth
