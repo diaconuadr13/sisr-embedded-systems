@@ -46,6 +46,11 @@ def _scan_dirs(root: str) -> list[str]:
     )
 
 
+def _dataset_choices(train_dirs: list[str]) -> list[str]:
+    choices = [d.rstrip("/").split("/")[-1] for d in train_dirs]
+    return choices or [DEFAULT_FORM_VALUES["dataset_name"]]
+
+
 @router.get("/experiments/new", response_class=HTMLResponse)
 def new_experiment(request: Request):
     try:
@@ -54,7 +59,11 @@ def new_experiment(request: Request):
         archs = [DEFAULT_FORM_VALUES["arch"]]
     # Suggest a fresh model_name using today's timestamp as default
     suggested = f"{DEFAULT_FORM_VALUES['arch']}_x{DEFAULT_FORM_VALUES['scale']}_{datetime.now().strftime('%Y%m%d_%H%M')}"
+    train_dirs = _scan_dirs("data/train")
+    dataset_choices = _dataset_choices(train_dirs)
     values = dict(DEFAULT_FORM_VALUES, model_name=suggested)
+    if values["dataset_name"] not in dataset_choices:
+        values["dataset_name"] = dataset_choices[0]
     return templates.TemplateResponse(
         request=request,
         name="experiments/new.html",
@@ -62,7 +71,8 @@ def new_experiment(request: Request):
             "values": values,
             "archs": archs,
             "devices": DEVICE_CHOICES,
-            "train_dirs": _scan_dirs("data/train"),
+            "dataset_choices": dataset_choices,
+            "train_dirs": train_dirs,
             "val_dirs": _scan_dirs("data/val"),
             "nav": "new",
         },

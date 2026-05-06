@@ -30,7 +30,11 @@
 
   <label>
     <span>Dataset name</span>
-    <input type="text" name="dataset_name" value="{{ values.dataset_name }}" required>
+    <select name="dataset_name" required>
+      {% for dataset in dataset_choices %}
+        <option value="{{ dataset }}" {% if values.dataset_name == dataset %}selected{% endif %}>{{ dataset }}</option>
+      {% endfor %}
+    </select>
   </label>
 
   <label>
