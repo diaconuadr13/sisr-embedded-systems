@@ -12,7 +12,6 @@ Lightweight CNN architectures (ESPCN, FSRCNN, ESPCN-Light) trained and benchmark
 ├── evaluate_pc.py            # Inference speed profiling
 ├── plot_metrics.py           # Loss / PSNR / SSIM curve plotting
 ├── download_data.py          # DIV2K dataset downloader
-├── test_sweep_dryrun.py      # Verification: 3-arch sequential dry-run
 ├── models/
 │   ├── __init__.py           # Model factory (get_model / MODEL_REGISTRY)
 │   ├── espcn.py              # ESPCN (Shi et al., 2016)
