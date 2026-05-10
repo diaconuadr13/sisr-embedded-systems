@@ -130,4 +130,20 @@ sample_ms=142.8
 sample_ms=143.1
 ```
 
+Raspberry Pi Pico/RP2040 sketches are available under `pico_firmware/` for
+`EDSR_Tiny` INT8 and `SRCNN` INT8. Their serial output uses the same board-log
+format with `target=pico` and Pico SRAM fields:
+
+```text
+target=pico
+tile=8x8
+scale=2
+tensor_arena_bytes=49152
+free_sram_before=180224
+free_sram_after=130560
+inference_ms=42.5
+sample_ms=42.0
+sample_ms=43.0
+```
+
 Power-derived fields such as energy per inference, energy per output pixel, and MOPS/W are calculated on the PC after measurement.

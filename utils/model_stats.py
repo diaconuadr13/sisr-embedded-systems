@@ -46,7 +46,14 @@ def _parse_value(key: str, raw: str, line_number: int) -> Any:
                 raise ValueError("invalid tile format")
             h, w = parts
             return [int(h), int(w)]
-        if key in {"scale", "free_heap_before", "free_heap_after", "tensor_arena_bytes"}:
+        if key in {
+            "scale",
+            "free_heap_before",
+            "free_heap_after",
+            "free_sram_before",
+            "free_sram_after",
+            "tensor_arena_bytes",
+        }:
             return int(raw)
         if key in {"inference_ms", "sample_ms"}:
             return float(raw)

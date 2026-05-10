@@ -20,6 +20,8 @@ reports/deployment_metrics/
 *.pt
 *.onnx
 *.tflite
+!pico_firmware/edsr_tiny_int8/edsr_tiny_int8.tflite
+!pico_firmware/srcnn_inference_int8/srcnn_int8.tflite
 
 # --- IDE / OS ---
 .idea/

@@ -33,6 +33,22 @@
 constexpr int kTensorArenaSize = 48 * 1024;
 static uint8_t tensor_arena[kTensorArenaSize];
 
+static void dump_pixels_serial(const char* tag, int h, int w, const float* data) {
+    Serial.print("SISR:");
+    Serial.print(tag);
+    Serial.print(":");
+    Serial.print(h);
+    Serial.print(":");
+    Serial.print(w);
+    Serial.print(":");
+    int n = h * w;
+    for (int i = 0; i < n; i++) {
+        Serial.print(data[i], 6);
+        if (i < n - 1) Serial.print(",");
+    }
+    Serial.println();
+}
+
 float compute_psnr(const float* a, const float* b, int n) {
     double mse = 0.0;
     for (int i = 0; i < n; i++) {
@@ -111,6 +127,13 @@ void setup() {
     Serial.printf("Inference time : %lu us  (%.2f ms)\n", elapsed_us, elapsed_us / 1000.0f);
     Serial.printf("Output pixels  : %d\n", out_len);
     if (psnr >= 0) Serial.printf("PSNR vs HR     : %.2f dB\n", psnr);
+    Serial.println("\n--- Image dump ---");
+    Serial.println("SISR_IMG_START");
+    dump_pixels_serial("LR", TEST_INPUT_H, TEST_INPUT_W, test_input_data);
+    if (out_len == TEST_HR_LEN && out_f32)
+        dump_pixels_serial("SR", TEST_HR_H, TEST_HR_W, out_f32);
+    dump_pixels_serial("HR", TEST_HR_H, TEST_HR_W, test_hr_data);
+    Serial.println("SISR_IMG_END");
     Serial.println("Done.");
 }
 
