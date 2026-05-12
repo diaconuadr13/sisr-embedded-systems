@@ -4,7 +4,7 @@
 Usage:
     python tools/export_tflite.py <arch> <pth_path> <out_dir> [options]
 
-    arch: espcn_light | fsrcnn | srcnn | edsr_tiny
+    arch: espcn_micro | espcn_light | fsrcnn | srcnn | edsr_tiny
 
 Options:
     --val_dir PATH      HR images for INT8 calibration (default: data/val/DIV2K_valid_HR)
@@ -13,6 +13,7 @@ Options:
     --no_c_array        Skip generating C header files
 
 Conversion backends:
+    espcn_micro/
     espcn_light  — onnx2tf (PyTorch → ONNX → TFLite). litert-torch decomposes
                    PixelShuffle into 6D transposes unsupported by TFLite Micro;
                    onnx2tf maps it to DEPTH_TO_SPACE instead. Output is NHWC,
@@ -47,7 +48,7 @@ import torch.nn as nn
 
 sys.path.insert(0, ".")
 
-ARCHS = ["espcn_light", "fsrcnn", "srcnn", "edsr_tiny"]
+ARCHS = ["espcn_micro", "espcn_light", "fsrcnn", "srcnn", "edsr_tiny"]
 
 
 class SRCNNNoUpsample(nn.Module):
@@ -84,7 +85,10 @@ def load_model(arch: str, pth_path: str):
     num_channels = _detect_channels(state_dict)
     scale = int(state.get("scale", 2)) if isinstance(state, dict) else 2
 
-    if arch == "espcn_light":
+    if arch == "espcn_micro":
+        from models.espcn_micro import ESPCNMicro
+        model = ESPCNMicro(scale_factor=scale, num_channels=num_channels)
+    elif arch == "espcn_light":
         from models.espcn_light import ESPCNLight
         model = ESPCNLight(scale_factor=scale, num_channels=num_channels)
     elif arch == "fsrcnn":
@@ -554,7 +558,7 @@ def main():
 
     sample_input = torch.zeros(1, num_channels, in_h, in_w)
 
-    if args.arch == "espcn_light":
+    if args.arch in {"espcn_micro", "espcn_light"}:
         # onnx2tf path: handles PixelShuffle → DEPTH_TO_SPACE correctly
         export_via_onnx2tf(model, sample_input, args.arch, out_dir,
                            args.int8, args.val_dir, tile_h, tile_w, args.no_c_array,

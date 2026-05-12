@@ -6,12 +6,12 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from models import get_model, list_models
 from utils.device import configure_runtime, resolve_device
-from utils.dataset import SISRDataset
+from utils.dataset import SISRDataset, ThermalFullFrameSISRDataset
 from utils.metrics import calculate_psnr, calculate_ssim
 
 
@@ -63,6 +63,31 @@ def autocast_context(use_amp: bool) -> Any:
     return nullcontext()
 
 
+def build_val_dataset(
+    val_dir: str,
+    config: Dict[str, Any],
+    scale: int,
+    grayscale: bool,
+) -> Dataset:
+    dataset_type = str(config.get("dataset_type", "patch")).lower()
+    if dataset_type == "thermal_full_frame":
+        same_dir = Path(val_dir).resolve() == Path(config.get("hr_dir", val_dir)).resolve()
+        return ThermalFullFrameSISRDataset(
+            hr_dir=val_dir,
+            scale=scale,
+            hr_height=int(config.get("hr_height", 24)),
+            hr_width=int(config.get("hr_width", 32)),
+            split="val" if same_dir else None,
+            val_fraction=float(config.get("val_fraction", 0.2)),
+            split_seed=int(config.get("split_seed", 42)),
+        )
+    if dataset_type != "patch":
+        raise ValueError("dataset_type must be one of: patch, thermal_full_frame")
+
+    patch_size = scale * 24
+    return SISRDataset(hr_dir=val_dir, scale=scale, patch_size=patch_size, grayscale=grayscale)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -74,8 +99,10 @@ def main() -> None:
     checkpoint = torch.load(weights_path, map_location="cpu")
     metadata = load_checkpoint_metadata(weights_path, checkpoint)
     arch, scale = resolve_model_spec(args, metadata)
+    config = metadata.get("config") or {}
+    grayscale = bool(config.get("grayscale", False))
 
-    model = get_model(arch, scale=scale, device=device)
+    model = get_model(arch, scale=scale, device=device, num_channels=1 if grayscale else 3)
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
         state_dict = checkpoint["state_dict"]
     else:
@@ -87,8 +114,7 @@ def main() -> None:
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Trainable parameters: {trainable_params}")
 
-    patch_size = scale * 24
-    val_dataset = SISRDataset(hr_dir=args.val_dir, scale=scale, patch_size=patch_size)
+    val_dataset = build_val_dataset(args.val_dir, config, scale, grayscale)
     val_loader = DataLoader(
         val_dataset,
         batch_size=1,

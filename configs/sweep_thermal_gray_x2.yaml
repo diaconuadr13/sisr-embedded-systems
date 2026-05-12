@@ -1,0 +1,123 @@
+# Native infrared thermal comparison sweep.
+# Uses the original 32x24 thermal frames as grayscale HR targets and trains
+# x2 models on full-frame LR 16x12 -> HR 32x24 pairs.
+
+experiments:
+  - model_name: "ESPCN_thermal_gray_x2"
+    arch: "ESPCN"
+    dataset_name: "InfraredThermal32x24"
+    dataset_type: "thermal_full_frame"
+    hr_dir: "data/train/Original Data(32by24)"
+    val_dir: "data/train/Original Data(32by24)"
+    scale: 2
+    hr_height: 24
+    hr_width: 32
+    grayscale: true
+    val_fraction: 0.2
+    split_seed: 42
+    batch_size: 128
+    num_workers: 0
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "ESPCN_Light_thermal_gray_x2"
+    arch: "ESPCN_Light"
+    dataset_name: "InfraredThermal32x24"
+    dataset_type: "thermal_full_frame"
+    hr_dir: "data/train/Original Data(32by24)"
+    val_dir: "data/train/Original Data(32by24)"
+    scale: 2
+    hr_height: 24
+    hr_width: 32
+    grayscale: true
+    val_fraction: 0.2
+    split_seed: 42
+    batch_size: 128
+    num_workers: 0
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "ESPCN_Micro_thermal_gray_x2"
+    arch: "ESPCN_Micro"
+    dataset_name: "InfraredThermal32x24"
+    dataset_type: "thermal_full_frame"
+    hr_dir: "data/train/Original Data(32by24)"
+    val_dir: "data/train/Original Data(32by24)"
+    scale: 2
+    hr_height: 24
+    hr_width: 32
+    grayscale: true
+    val_fraction: 0.2
+    split_seed: 42
+    batch_size: 128
+    num_workers: 0
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "FSRCNN_thermal_gray_x2"
+    arch: "FSRCNN"
+    dataset_name: "InfraredThermal32x24"
+    dataset_type: "thermal_full_frame"
+    hr_dir: "data/train/Original Data(32by24)"
+    val_dir: "data/train/Original Data(32by24)"
+    scale: 2
+    hr_height: 24
+    hr_width: 32
+    grayscale: true
+    val_fraction: 0.2
+    split_seed: 42
+    batch_size: 128
+    num_workers: 0
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "SRCNN_thermal_gray_x2"
+    arch: "SRCNN"
+    dataset_name: "InfraredThermal32x24"
+    dataset_type: "thermal_full_frame"
+    hr_dir: "data/train/Original Data(32by24)"
+    val_dir: "data/train/Original Data(32by24)"
+    scale: 2
+    hr_height: 24
+    hr_width: 32
+    grayscale: true
+    val_fraction: 0.2
+    split_seed: 42
+    batch_size: 128
+    num_workers: 0
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "EDSR_Tiny_thermal_gray_x2"
+    arch: "EDSR_Tiny"
+    dataset_name: "InfraredThermal32x24"
+    dataset_type: "thermal_full_frame"
+    hr_dir: "data/train/Original Data(32by24)"
+    val_dir: "data/train/Original Data(32by24)"
+    scale: 2
+    hr_height: 24
+    hr_width: 32
+    grayscale: true
+    val_fraction: 0.2
+    split_seed: 42
+    batch_size: 128
+    num_workers: 0
+    epochs: 100
+    lr: 0.001
+
+  - model_name: "CARN_M_thermal_gray_x2"
+    arch: "CARN_M"
+    dataset_name: "InfraredThermal32x24"
+    dataset_type: "thermal_full_frame"
+    hr_dir: "data/train/Original Data(32by24)"
+    val_dir: "data/train/Original Data(32by24)"
+    scale: 2
+    hr_height: 24
+    hr_width: 32
+    grayscale: true
+    val_fraction: 0.2
+    split_seed: 42
+    batch_size: 128
+    num_workers: 0
+    epochs: 100
+    lr: 0.001

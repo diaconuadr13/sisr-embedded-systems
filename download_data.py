@@ -8,7 +8,7 @@ import zipfile
 DIV2K_TRAIN_HR_URL = "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_train_HR.zip"
 DIV2K_VALID_HR_URL = "http://data.vision.ee.ethz.ch/cvl/DIV2K/DIV2K_valid_HR.zip"
 FLICKR2K_URL       = "https://huggingface.co/datasets/yangtao9009/Flickr2K/resolve/main/Flickr2K.zip"
-
+INFRARED_THERMAL_URL = "https://zenodo.org/records/5574233/files/Infrared%20thermal%20dataset.zip"
 
 def download(url: str, dest: str) -> None:
     print(f"Downloading {os.path.basename(dest)} from {url}")
@@ -45,12 +45,14 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Download SISR training datasets.")
     p.add_argument("--div2k",   action="store_true", default=False, help="Download DIV2K")
     p.add_argument("--flickr2k", action="store_true", default=False, help="Download Flickr2K (~12 GB)")
+    p.add_argument("--infrared_thermal", action="store_true", default=False, help="Download Infrared Thermal dataset")
     args = p.parse_args()
 
     # Default: download both if nothing specified
-    if not args.div2k and not args.flickr2k:
+    if not args.div2k and not args.flickr2k and not args.infrared_thermal:
         args.div2k = True
         args.flickr2k = True
+        args.infrared_thermal = True
 
     train_dir = os.path.join("data", "train")
     val_dir   = os.path.join("data", "val")
@@ -77,6 +79,14 @@ def main() -> None:
             os.path.join(train_dir, "Flickr2K.zip"),
             os.path.join(train_dir, "Flickr2K"),
             "Flickr2K",
+        )
+
+    if args.infrared_thermal:
+        download_dataset(
+            INFRARED_THERMAL_URL,
+            os.path.join(train_dir, "Infrared_thermal.zip"),
+            os.path.join(train_dir, "Infrared_thermal"),
+            "Infrared Thermal",
         )
 
     print("Done.")

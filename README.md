@@ -49,6 +49,16 @@ python evaluate_pc.py --weights runs/.../best_model.pth --val_dir data/val/DIV2K
 
 # Smallest grayscale microcontroller-targeted run
 python train.py --config configs/train_espcn_micro_gray_x2.yaml
+
+# Native 32x24 infrared thermal run: LR 16x12 -> HR 32x24 grayscale
+python train.py --config configs/train_espcn_micro_thermal_gray_x2.yaml
+
+# Train all supported models on the native thermal dataset
+python run_experiments.py configs/sweep_thermal_gray_x2.yaml
+
+# Compare completed thermal runs by validation PSNR/SSIM
+python tools/compare_training_runs.py --dataset InfraredThermal32x24 \
+  --output reports/thermal_gray_x2_comparison.csv
 ```
 
 ## Supported Architectures
@@ -56,7 +66,7 @@ python train.py --config configs/train_espcn_micro_gray_x2.yaml
 | Architecture | Params (×2) | Description |
 |---|---|---|
 | `ESPCN` | 26,796 | Sub-pixel convolution (Shi et al., CVPR 2016) |
-| `ESPCN_Light` | 8,796 | Halved channel widths for edge deployment |
+| `ESPCN_Light` | 8,796 | Halved channel widths and ReLU activations for edge deployment |
 | `ESPCN_Micro` | <2,000 | Tiny grayscale sub-pixel CNN for microcontroller-class tests |
 | `FSRCNN` | 24,683 | Deconvolution-based (Dong et al., ECCV 2016) |
 
@@ -147,3 +157,6 @@ sample_ms=43.0
 ```
 
 Power-derived fields such as energy per inference, energy per output pixel, and MOPS/W are calculated on the PC after measurement.
+
+For native thermal x2 deployment/export, use `--tile 12 16`; the tile arguments
+are LR height/width, so the model runs `12x16 -> 24x32`.

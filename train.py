@@ -7,7 +7,7 @@ import time
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import matplotlib
 matplotlib.use("Agg")
@@ -16,12 +16,12 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from models import get_model
 from utils.device import configure_runtime, resolve_device
-from utils.dataset import SISRDataset
+from utils.dataset import SISRDataset, ThermalFullFrameSISRDataset
 from utils.metrics import calculate_psnr, calculate_ssim
 
 
@@ -40,6 +40,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "device": "auto",
     "amp": True,
     "grayscale": False,
+    "dataset_type": "patch",
+    "hr_height": 24,
+    "hr_width": 32,
+    "val_fraction": 0.2,
+    "split_seed": 42,
 }
 
 
@@ -97,6 +102,8 @@ def create_experiment_dir(model_name: str, dataset_name: str) -> Path:
 
 def tensor_to_uint8(img: torch.Tensor) -> np.ndarray:
     img = torch.clamp(img, 0.0, 1.0).detach().cpu()
+    if img.shape[0] == 1:
+        return (img.squeeze(0).numpy() * 255.0).round().astype(np.uint8)
     return (img.permute(1, 2, 0).numpy() * 255.0).round().astype(np.uint8)
 
 
@@ -136,7 +143,7 @@ def save_visual_samples(
                 (hr_np, "Target (HR)"),
             ]
             for ax, (img, title) in zip(axes, panels):
-                ax.imshow(img)
+                ax.imshow(img, cmap="gray" if img.ndim == 2 else None, vmin=0, vmax=255)
                 ax.set_title(title)
                 ax.axis("off")
 
@@ -161,6 +168,67 @@ def autocast_context(use_amp: bool) -> Any:
     return nullcontext()
 
 
+def create_datasets(cfg: Dict[str, Any]) -> Tuple[Dataset, Dataset]:
+    dataset_type = str(cfg.get("dataset_type", "patch")).lower()
+    scale = int(cfg["scale"])
+    grayscale = bool(cfg.get("grayscale", False))
+
+    if dataset_type == "thermal_full_frame":
+        train_dir = str(cfg["hr_dir"])
+        val_dir = str(cfg.get("val_dir") or cfg["hr_dir"])
+        hr_height = int(cfg.get("hr_height", 24))
+        hr_width = int(cfg.get("hr_width", 32))
+        val_fraction = float(cfg.get("val_fraction", 0.2))
+        split_seed = int(cfg.get("split_seed", 42))
+        same_dir = Path(train_dir).resolve() == Path(val_dir).resolve()
+
+        if not grayscale:
+            print("[train] thermal_full_frame uses grayscale frames; forcing grayscale=true")
+            cfg["grayscale"] = True
+
+        if same_dir:
+            train_dataset = ThermalFullFrameSISRDataset(
+                hr_dir=train_dir,
+                scale=scale,
+                hr_height=hr_height,
+                hr_width=hr_width,
+                split="train",
+                val_fraction=val_fraction,
+                split_seed=split_seed,
+            )
+            val_dataset = ThermalFullFrameSISRDataset(
+                hr_dir=val_dir,
+                scale=scale,
+                hr_height=hr_height,
+                hr_width=hr_width,
+                split="val",
+                val_fraction=val_fraction,
+                split_seed=split_seed,
+            )
+        else:
+            train_dataset = ThermalFullFrameSISRDataset(
+                hr_dir=train_dir,
+                scale=scale,
+                hr_height=hr_height,
+                hr_width=hr_width,
+            )
+            val_dataset = ThermalFullFrameSISRDataset(
+                hr_dir=val_dir,
+                scale=scale,
+                hr_height=hr_height,
+                hr_width=hr_width,
+            )
+        return train_dataset, val_dataset
+
+    if dataset_type != "patch":
+        raise ValueError("dataset_type must be one of: patch, thermal_full_frame")
+
+    patch_size = scale * 24
+    train_dataset = SISRDataset(hr_dir=cfg["hr_dir"], scale=scale, patch_size=patch_size, grayscale=grayscale)
+    val_dataset = SISRDataset(hr_dir=cfg["val_dir"], scale=scale, patch_size=patch_size, grayscale=grayscale)
+    return train_dataset, val_dataset
+
+
 def train(cfg: Dict[str, Any]) -> Path:
     """Run one full training experiment. Returns the experiment directory path."""
     exp_dir = create_experiment_dir(cfg["model_name"], cfg["dataset_name"])
@@ -176,10 +244,8 @@ def train(cfg: Dict[str, Any]) -> Path:
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
     print(f"[train] device={device}  amp={use_amp}  exp_dir={exp_dir}")
 
-    patch_size = cfg["scale"] * 24
+    train_dataset, val_dataset = create_datasets(cfg)
     grayscale = cfg.get("grayscale", False)
-    train_dataset = SISRDataset(hr_dir=cfg["hr_dir"], scale=cfg["scale"], patch_size=patch_size, grayscale=grayscale)
-    val_dataset = SISRDataset(hr_dir=cfg["val_dir"], scale=cfg["scale"], patch_size=patch_size, grayscale=grayscale)
 
     train_loader = DataLoader(
         train_dataset,

@@ -6,7 +6,7 @@ from typing import Any
 
 ARCH_DESCRIPTIONS: dict[str, str] = {
     "ESPCN": "Sub-pixel convolution (Shi et al., CVPR 2016). Feature extraction 64→32 channels + PixelShuffle.",
-    "ESPCN_Light": "ESPCN with halved channels (32→16) for embedded deployment.",
+    "ESPCN_Light": "ESPCN with halved channels (32→16) and ReLU activations for embedded deployment.",
     "FSRCNN": "Deconvolution-based (Dong et al., ECCV 2016). Shrinking + 4-layer mapping + expansion + deconv.",
     "SRCNN": "Bicubic upsample → 3-layer CNN refinement (Dong et al., ECCV 2014).",
     "EDSR_Tiny": "8 residual blocks (32 features) with residual scaling (0.1), no batch norm, PixelShuffle.",

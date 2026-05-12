@@ -3,15 +3,19 @@ from torch import nn
 
 
 class ESPCNLight(nn.Module):
-    """ESPCN with halved channel widths (32→16) for embedded/edge deployment."""
+    """ESPCN with halved channel widths (32→16) for embedded/edge deployment.
+
+    Uses ReLU activations because they are cheaper and simpler to port to
+    embedded inference runtimes than Tanh.
+    """
 
     def __init__(self, scale_factor: int = 2, num_channels: int = 3) -> None:
         super().__init__()
         self.feature_extractor = nn.Sequential(
             nn.Conv2d(num_channels, 32, kernel_size=5, stride=1, padding=2),
-            nn.Tanh(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1),
-            nn.Tanh(),
+            nn.ReLU(inplace=True),
             nn.Conv2d(16, num_channels * (scale_factor ** 2),
                        kernel_size=3, stride=1, padding=1),
         )
