@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}{{ run.model_name }} — {{ run.exp_name }}{% endblock %}
+{% block content %}
+
+<section class="page-header">
+  <div>
+    <h1>{{ run.model_name }} <span class="muted">— {{ run.exp_name }}</span></h1>
+    <p class="muted">
+      <strong>{{ run.arch }}</strong> × scale {{ run.scale }} ·
+      dataset <strong>{{ run.dataset }}</strong> ·
+      {{ run.completed_epochs }}/{{ run.total_epochs }} epochs
+      {% if run.created_at %}· {{ run.created_at.strftime("%Y-%m-%d %H:%M") }}{% endif %}
+    </p>
+  </div>
+  <div class="run-actions">
+    {% if run.has_best_checkpoint %}
+      <a href="/runs/{{ run.id }}/checkpoint/best" class="button">Download best_model.pth</a>
+    {% endif %}
+    {% if run.has_last_checkpoint %}
+      <a href="/runs/{{ run.id }}/checkpoint/last" class="button secondary">Download last_model.pth</a>
+    {% endif %}
+  </div>
+</section>
+
+<section class="stats-grid">
+  <div class="stat-card">
+    <div class="stat-label">Best PSNR</div>
+    <div class="stat-value">{% if run.best_psnr is not none %}{{ "%.3f"|format(run.best_psnr) }} dB{% else %}—{% endif %}</div>
+    <div class="muted small">{% if run.best_epoch %}epoch {{ run.best_epoch }}{% endif %}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Best SSIM</div>
+    <div class="stat-value">{% if run.best_ssim is not none %}{{ "%.4f"|format(run.best_ssim) }}{% else %}—{% endif %}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Final train loss</div>
+    <div class="stat-value">{% if run.final_train_loss is not none %}{{ "%.5f"|format(run.final_train_loss) }}{% else %}—{% endif %}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Final val loss</div>
+    <div class="stat-value">{% if run.final_val_loss is not none %}{{ "%.5f"|format(run.final_val_loss) }}{% else %}—{% endif %}</div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><h2>Tags</h2></div>
+  {% include "partials/tags.html" %}
+</section>
+
+<section class="card">
+  <div class="card-header"><h2>Notes</h2></div>
+  <form hx-post="/api/notes/{{ run.id }}" hx-target="#note-status" hx-swap="innerHTML" class="note-form">
+    <textarea name="body" rows="4" placeholder="Write notes about this run…">{{ run.note or '' }}</textarea>
+    <div class="row">
+      <button type="submit">Save note</button>
+      <span id="note-status" class="muted"></span>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-header"><h2>Metrics</h2></div>
+  <div class="chart-grid">
+    <div class="chart-cell"><canvas id="chart-loss"></canvas></div>
+    <div class="chart-cell"><canvas id="chart-psnr"></canvas></div>
+    <div class="chart-cell"><canvas id="chart-ssim"></canvas></div>
+    <div class="chart-cell"><canvas id="chart-lr"></canvas></div>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-header"><h2>Visual samples</h2></div>
+  {% if run.sample_epochs %}
+    <div class="row">
+      <label for="epoch-slider">Epoch:</label>
+      <input id="epoch-slider" type="range" min="0" max="{{ run.sample_epochs|length - 1 }}" value="{{ run.sample_epochs|length - 1 }}">
+      <span id="epoch-label">{{ run.sample_epochs[-1] }}</span>
+    </div>
+    <div id="samples-gallery" class="samples-gallery" data-epochs='{{ run.sample_epochs | tojson }}' data-run-id="{{ run.id }}"></div>
+  {% else %}
+    <p class="empty-state">No visual samples recorded.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-header"><h2>Config</h2></div>
+  <pre class="code-block">{{ run.config | tojson(indent=2) }}</pre>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  (function () {
+    const data = {{ chart_data | tojson }};
+    function lineChart(canvasId, datasets, yLabel) {
+      const ctx = document.getElementById(canvasId);
+      if (!ctx) return;
+      new Chart(ctx, {
+        type: 'line',
+        data: { labels: data.epochs, datasets: datasets },
+        options: {
+          responsive: true,
+          animation: false,
+          plugins: { legend: { position: 'bottom' } },
+          scales: { x: { title: { display: true, text: 'Epoch' } },
+                    y: { title: { display: true, text: yLabel } } }
+        }
+      });
+    }
+    lineChart('chart-loss', [
+      { label: 'Train loss', data: data.train_loss, borderColor: '#1f77b4', backgroundColor: 'transparent', tension: 0.15 },
+      { label: 'Val loss',   data: data.val_loss,   borderColor: '#d62728', backgroundColor: 'transparent', tension: 0.15 },
+    ], 'Loss (MSE)');
+    lineChart('chart-psnr', [
+      { label: 'Val PSNR (dB)', data: data.val_psnr, borderColor: '#2ca02c', backgroundColor: 'transparent', tension: 0.15 },
+    ], 'PSNR (dB)');
+    lineChart('chart-ssim', [
+      { label: 'Val SSIM', data: data.val_ssim, borderColor: '#9467bd', backgroundColor: 'transparent', tension: 0.15 },
+    ], 'SSIM');
+    lineChart('chart-lr', [
+      { label: 'Learning rate', data: data.lr, borderColor: '#ff7f0e', backgroundColor: 'transparent', tension: 0.0, stepped: true },
+    ], 'LR');
+
+    // Sample gallery
+    const gallery = document.getElementById('samples-gallery');
+    const slider = document.getElementById('epoch-slider');
+    const epochLabel = document.getElementById('epoch-label');
+    if (gallery && slider) {
+      const epochs = JSON.parse(gallery.dataset.epochs);
+      const runId = gallery.dataset.runId;
+      function renderEpoch(idx) {
+        const epoch = epochs[idx];
+        epochLabel.textContent = epoch;
+        const padded = String(epoch).padStart(4, '0');
+        gallery.innerHTML = [1,2,3].map(i =>
+          `<img src="/runs/${runId}/visuals/epoch_${padded}_sample_${i}.png" loading="lazy" alt="epoch ${epoch} sample ${i}">`
+        ).join('');
+      }
+      slider.addEventListener('input', (e) => renderEpoch(parseInt(e.target.value, 10)));
+      renderEpoch(epochs.length - 1);
+    }
+  })();
+</script>
+{% endblock %}

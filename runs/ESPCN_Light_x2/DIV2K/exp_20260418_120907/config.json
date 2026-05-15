@@ -1,0 +1,14 @@
+{
+  "hr_dir": "data/train/DIV2K_train_HR",
+  "val_dir": "data/val/DIV2K_valid_HR",
+  "model_name": "ESPCN_Light_x2",
+  "arch": "ESPCN_Light",
+  "dataset_name": "DIV2K",
+  "scale": 4,
+  "batch_size": 64,
+  "epochs": 100,
+  "lr": 0.001,
+  "num_workers": 4,
+  "device": "auto",
+  "amp": true
+}

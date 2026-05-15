@@ -1,0 +1,15 @@
+{
+  "hr_dir": "data/train/Flickr2K",
+  "val_dir": "data/val/DIV2K_valid_HR",
+  "model_name": "ESPCN_gray_x2",
+  "arch": "ESPCN",
+  "dataset_name": "Flickr2K",
+  "scale": 2,
+  "batch_size": 64,
+  "epochs": 100,
+  "lr": 0.001,
+  "num_workers": 4,
+  "device": "auto",
+  "amp": true,
+  "grayscale": true
+}

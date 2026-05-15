@@ -1,0 +1,20 @@
+{
+  "hr_dir": "data/train/Original Data(32by24)",
+  "val_dir": "data/train/Original Data(32by24)",
+  "model_name": "CARN_M_thermal_gray_x2",
+  "arch": "CARN_M",
+  "dataset_name": "InfraredThermal32x24",
+  "scale": 2,
+  "batch_size": 128,
+  "epochs": 100,
+  "lr": 0.001,
+  "num_workers": 0,
+  "device": "auto",
+  "amp": true,
+  "grayscale": true,
+  "dataset_type": "thermal_full_frame",
+  "hr_height": 24,
+  "hr_width": 32,
+  "val_fraction": 0.2,
+  "split_seed": 42
+}

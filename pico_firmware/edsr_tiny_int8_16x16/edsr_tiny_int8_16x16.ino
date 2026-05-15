@@ -19,7 +19,6 @@
  * Or copy the matching generated headers from esp32_firmware/edsr_tiny_int8/.
  */
 
-# */
 #include <Arduino.h>
 #include <TensorFlowLiteMicro.h>
 

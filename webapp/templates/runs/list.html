@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Runs — SISR Thesis Manager{% endblock %}
+{% block content %}
+<section class="page-header">
+  <h1>Runs</h1>
+  <p class="muted">{{ runs|length }} run(s) matching current filters.</p>
+</section>
+
+<form class="filter-bar" method="get" action="/runs">
+  <input type="search" name="q" placeholder="Search model_name / run id" value="{{ filters.q or '' }}">
+
+  <select name="arch">
+    <option value="">Any arch</option>
+    {% for a in archs %}
+      <option value="{{ a }}" {% if filters.arch == a %}selected{% endif %}>{{ a }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="dataset">
+    <option value="">Any dataset</option>
+    {% for d in datasets %}
+      <option value="{{ d }}" {% if filters.dataset == d %}selected{% endif %}>{{ d }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="scale">
+    <option value="">Any scale</option>
+    {% for s in scales %}
+      <option value="{{ s }}" {% if filters.scale == s %}selected{% endif %}>x{{ s }}</option>
+    {% endfor %}
+  </select>
+
+  <select name="tag">
+    <option value="">Any tag</option>
+    {% for t in all_tags %}
+      <option value="{{ t }}" {% if filters.tag == t %}selected{% endif %}>{{ t }}</option>
+    {% endfor %}
+  </select>
+
+  <button type="submit">Filter</button>
+  <a href="/runs" class="secondary">Clear</a>
+</form>
+
+<form id="compare-form" action="/compare" method="get" class="compare-bar">
+  <span class="muted">Select runs and compare:</span>
+  <button type="submit">Compare selected →</button>
+</form>
+
+{% if runs %}
+<table class="data-table selectable">
+  <thead>
+    <tr>
+      <th></th>
+      <th>Model</th>
+      <th>Arch</th>
+      <th>Scale</th>
+      <th>Dataset</th>
+      <th>Epochs</th>
+      <th>Best PSNR</th>
+      <th>Best SSIM</th>
+      <th>Tags</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in runs %}
+    <tr>
+      <td>
+        <input type="checkbox" form="compare-form" name="runs" value="{{ r.id }}">
+      </td>
+      <td><a href="/runs/{{ r.id }}">{{ r.model_name }}</a><div class="muted small">{{ r.exp_name }}</div></td>
+      <td>{{ r.arch }}</td>
+      <td>x{{ r.scale }}</td>
+      <td>{{ r.dataset }}</td>
+      <td>{{ r.completed_epochs }}/{{ r.total_epochs }}</td>
+      <td>{% if r.best_psnr is not none %}{{ "%.3f"|format(r.best_psnr) }}{% else %}—{% endif %}</td>
+      <td>{% if r.best_ssim is not none %}{{ "%.4f"|format(r.best_ssim) }}{% else %}—{% endif %}</td>
+      <td>
+        {% for t in r.tags %}<span class="chip">{{ t }}</span>{% endfor %}
+      </td>
+      <td class="muted small">{% if r.created_at %}{{ r.created_at.strftime("%Y-%m-%d %H:%M") }}{% else %}—{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="empty-state">No runs match these filters.</p>
+{% endif %}
+{% endblock %}

@@ -11,10 +11,9 @@ venv/
 data/
 
 # --- Experiment outputs ---
-runs/
 sweep_logs/
 reports/deployment_metrics/
-
+*.png
 # --- Model weights ---
 *.pth
 *.pt
