@@ -11,6 +11,7 @@ from models.fsrcnn import FSRCNN
 from models.srcnn import SRCNN
 from models.edsr_tiny import EDSRTiny
 from models.carn_m import CARNM
+from models.video_espcn import VideoESPCN, VideoESPCNMicro
 
 # Registry: canonical name → class. Lookup is case-insensitive.
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
@@ -21,18 +22,20 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "SRCNN": SRCNN,
     "EDSR_Tiny": EDSRTiny,
     "CARN_M": CARNM,
+    "VideoESPCN": VideoESPCN,
+    "VideoESPCN_Micro": VideoESPCNMicro,
 }
 
 
 def get_model(model_name: str, scale: int, device: torch.device,
-              num_channels: int = 3) -> nn.Module:
+              num_channels: int = 3, **kwargs) -> nn.Module:
     """Instantiate a model by name. Raises ValueError on unknown name."""
     lookup = {k.lower(): v for k, v in MODEL_REGISTRY.items()}
     cls = lookup.get(model_name.lower())
     if cls is None:
         available = ", ".join(MODEL_REGISTRY.keys())
         raise ValueError(f"Unknown model '{model_name}'. Available: {available}")
-    return cls(scale_factor=scale, num_channels=num_channels).to(device)
+    return cls(scale_factor=scale, num_channels=num_channels, **kwargs).to(device)
 
 
 def list_models() -> list[str]:

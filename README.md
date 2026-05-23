@@ -109,6 +109,84 @@ experiments:
 - **Inference time** (ms/image) and **FPS**
 - **Parameter count** and memory footprint
 
+
+## PC-only Video Super-Resolution
+
+This workflow trains, evaluates, and runs lightweight PyTorch video SR on a computer. Embedded boards, TFLite export, deployment metrics, and power metrics are intentionally out of scope for this phase.
+
+Dataset layout:
+
+```text
+data/video/train/clip_000/frame_000.png
+data/video/train/clip_000/frame_001.png
+data/video/train/clip_001/frame_000.png
+data/video/val/clip_000/frame_000.png
+```
+
+A flat directory of frames is also supported and is treated as one clip.
+
+Create a toy dataset for smoke tests:
+
+```bash
+python tools/create_toy_video_dataset.py --output data/video_toy
+```
+
+Train a small three-frame VideoESPCN model:
+
+```bash
+python train_video.py \
+  --config configs/train_video_espcn_x2_3f.yaml \
+  --hr_video_dir data/video_toy/train \
+  --val_video_dir data/video_toy/val \
+  --epochs 2 \
+  --samples_per_epoch 64 \
+  --batch_size 4 \
+  --device auto
+```
+
+Evaluate a trained checkpoint:
+
+```bash
+python evaluate_video_pc.py \
+  --weights runs/.../best_model.pth \
+  --video_dir data/video_toy/val \
+  --device auto \
+  --output_json runs/.../video_eval.json
+```
+
+Run inference on a video file:
+
+```bash
+python video_infer.py \
+  --weights runs/.../best_model.pth \
+  --input input.mp4 \
+  --output output_sr.mp4 \
+  --device auto
+```
+
+Run the frame-by-frame baseline mode. For video checkpoints this repeats the center frame across the temporal window, so the model gets no neighboring-frame information:
+
+```bash
+python video_infer.py \
+  --weights runs/.../best_model.pth \
+  --input input.mp4 \
+  --output output_sisr_per_frame.mp4 \
+  --frame_by_frame
+```
+
+Run the pytest smoke tests:
+
+```bash
+python -m pytest tests
+```
+
+Known limitations:
+
+- This first VSR model does not use optical flow or deformable alignment.
+- Temporal windows are concatenated as channels.
+- It may improve stability/details, but can still fail on large motion.
+- Board/TFLite deployment is intentionally out of scope for this phase.
+
 ## Deployment Metrics
 
 Deployment reports combine checkpoint metadata, tile dimensions, optional validation-patch quality metrics, optional ESP32 runtime logs, and optional power measurements.

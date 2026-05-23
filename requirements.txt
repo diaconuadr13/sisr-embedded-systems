@@ -140,3 +140,4 @@ xdg==5
 xkit==0.0.0
 xmltodict==0.13.0
 zope.interface==6.1
+pytest>=8.0
