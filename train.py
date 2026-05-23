@@ -21,7 +21,7 @@ from tqdm import tqdm
 
 from models import get_model
 from utils.device import configure_runtime, resolve_device
-from utils.dataset import SISRDataset, ThermalFullFrameSISRDataset
+from utils.dataset import PairedImageSISRDataset, SISRDataset, ThermalFullFrameSISRDataset
 from utils.metrics import calculate_psnr, calculate_ssim
 
 
@@ -41,6 +41,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "amp": True,
     "grayscale": False,
     "dataset_type": "patch",
+    "lr_dir": "",
+    "val_lr_dir": "",
+    "patch_size": 0,
+    "full_frame": False,
+    "cache_in_memory": False,
     "hr_height": 24,
     "hr_width": 32,
     "val_fraction": 0.2,
@@ -220,10 +225,39 @@ def create_datasets(cfg: Dict[str, Any]) -> Tuple[Dataset, Dataset]:
             )
         return train_dataset, val_dataset
 
-    if dataset_type != "patch":
-        raise ValueError("dataset_type must be one of: patch, thermal_full_frame")
+    if dataset_type == "paired":
+        patch_size = int(cfg.get("patch_size") or scale * 48)
+        if not cfg.get("lr_dir"):
+            raise ValueError("dataset_type=paired requires lr_dir")
+        val_lr_dir = cfg.get("val_lr_dir") or cfg.get("lr_dir")
+        train_dataset = PairedImageSISRDataset(
+            lr_dir=str(cfg["lr_dir"]),
+            hr_dir=str(cfg["hr_dir"]),
+            scale=scale,
+            patch_size=patch_size,
+            grayscale=grayscale,
+            random_crop=True,
+            augment=bool(cfg.get("augment", True)),
+            full_frame=bool(cfg.get("full_frame", False)),
+            cache_in_memory=bool(cfg.get("cache_in_memory", False)),
+        )
+        val_dataset = PairedImageSISRDataset(
+            lr_dir=str(val_lr_dir),
+            hr_dir=str(cfg["val_dir"]),
+            scale=scale,
+            patch_size=patch_size,
+            grayscale=grayscale,
+            random_crop=False,
+            augment=False,
+            full_frame=bool(cfg.get("full_frame", False)),
+            cache_in_memory=bool(cfg.get("cache_in_memory", False)),
+        )
+        return train_dataset, val_dataset
 
-    patch_size = scale * 24
+    if dataset_type != "patch":
+        raise ValueError("dataset_type must be one of: patch, paired, thermal_full_frame")
+
+    patch_size = int(cfg.get("patch_size") or scale * 24)
     train_dataset = SISRDataset(hr_dir=cfg["hr_dir"], scale=scale, patch_size=patch_size, grayscale=grayscale)
     val_dataset = SISRDataset(hr_dir=cfg["val_dir"], scale=scale, patch_size=patch_size, grayscale=grayscale)
     return train_dataset, val_dataset

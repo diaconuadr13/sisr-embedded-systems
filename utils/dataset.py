@@ -119,6 +119,177 @@ class SISRDataset(Dataset):
         return lr_tensor, hr_tensor
 
 
+class PairedImageSISRDataset(Dataset):
+    """Paired LR/HR image dataset for real-world image super-resolution.
+
+    The dataset expects matching filenames or stems in separate LR and HR
+    folders. In full-frame mode, the LR image and HR target are used at their
+    original sizes. A shape mismatch raises an error instead of resizing data.
+    """
+
+    def __init__(
+        self,
+        lr_dir: str,
+        hr_dir: str,
+        scale: int,
+        patch_size: int,
+        grayscale: bool = False,
+        random_crop: bool = True,
+        augment: bool = True,
+        full_frame: bool = False,
+        cache_in_memory: bool = False,
+        extensions: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".webp"),
+    ) -> None:
+        self.lr_dir = Path(lr_dir)
+        self.hr_dir = Path(hr_dir)
+        self.scale = int(scale)
+        self.patch_size = int(patch_size)
+        self.grayscale = bool(grayscale)
+        self.random_crop = bool(random_crop)
+        self.augment = bool(augment)
+        self.full_frame = bool(full_frame)
+        self.extensions = tuple(ext.lower() for ext in extensions)
+
+        if self.scale <= 0:
+            raise ValueError("scale must be > 0")
+        if not self.full_frame and self.patch_size <= 0:
+            raise ValueError("patch_size must be > 0")
+        if not self.full_frame and self.patch_size % self.scale != 0:
+            raise ValueError("patch_size must be divisible by scale")
+        if not self.lr_dir.exists():
+            raise FileNotFoundError(f"LR directory does not exist: {self.lr_dir}")
+        if not self.hr_dir.exists():
+            raise FileNotFoundError(f"HR directory does not exist: {self.hr_dir}")
+
+        lr_paths = self._list_paths(self.lr_dir)
+        hr_paths = self._list_paths(self.hr_dir)
+        self.pairs = self._match_pairs(lr_paths, hr_paths)
+        if not self.pairs:
+            raise FileNotFoundError(f"No matching LR/HR image pairs found in {self.lr_dir} and {self.hr_dir}")
+
+        self._cache: Optional[List[Tuple[np.ndarray, np.ndarray]]] = None
+        if cache_in_memory:
+            print(f"[dataset] Caching {len(self.pairs)} paired LR/HR images...", flush=True)
+            self._cache = [(self._load_image(lr), self._load_image(hr)) for lr, hr in self.pairs]
+            print("[dataset] Paired cache ready.", flush=True)
+
+    def _list_paths(self, directory: Path) -> List[Path]:
+        return sorted(
+            p
+            for p in directory.rglob("*")
+            if p.is_file() and not p.name.startswith(".") and p.suffix.lower() in self.extensions
+        )
+
+    def _match_pairs(self, lr_paths: List[Path], hr_paths: List[Path]) -> List[Tuple[Path, Path]]:
+        hr_by_rel = {p.relative_to(self.hr_dir).with_suffix("").as_posix(): p for p in hr_paths}
+        pairs = []
+        for lr_path in lr_paths:
+            key = lr_path.relative_to(self.lr_dir).with_suffix("").as_posix()
+            if key in hr_by_rel:
+                pairs.append((lr_path, hr_by_rel[key]))
+        if pairs:
+            return pairs
+
+        hr_by_stem = {p.stem: p for p in hr_paths}
+        pairs = [(lr_path, hr_by_stem[lr_path.stem]) for lr_path in lr_paths if lr_path.stem in hr_by_stem]
+        if pairs:
+            return pairs
+
+        if len(lr_paths) == len(hr_paths):
+            return list(zip(lr_paths, hr_paths))
+        return []
+
+    def __len__(self) -> int:
+        return len(self.pairs)
+
+    def _load_image(self, path: Path) -> np.ndarray:
+        flag = cv2.IMREAD_GRAYSCALE if self.grayscale else cv2.IMREAD_COLOR
+        img = cv2.imread(str(path), flag)
+        if img is None:
+            raise RuntimeError(f"Failed to read image: {path}")
+        if self.grayscale:
+            return img
+        return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+    def _augment_pair(
+        self,
+        lr_img: np.ndarray,
+        hr_img: np.ndarray,
+        rotate: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        if not self.augment:
+            return lr_img, hr_img
+        if np.random.rand() < 0.5:
+            lr_img = np.flip(lr_img, axis=1)
+            hr_img = np.flip(hr_img, axis=1)
+        if np.random.rand() < 0.5:
+            lr_img = np.flip(lr_img, axis=0)
+            hr_img = np.flip(hr_img, axis=0)
+        if rotate:
+            k = int(np.random.randint(0, 4))
+            if k:
+                lr_img = np.rot90(lr_img, k=k, axes=(0, 1))
+                hr_img = np.rot90(hr_img, k=k, axes=(0, 1))
+        return lr_img, hr_img
+
+    def _to_tensor(self, img: np.ndarray) -> torch.Tensor:
+        arr = np.ascontiguousarray(img)
+        if self.grayscale:
+            return torch.from_numpy(arr).unsqueeze(0).float() / 255.0
+        return torch.from_numpy(arr).permute(2, 0, 1).float() / 255.0
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self._cache is not None:
+            lr_img, hr_img = self._cache[index]
+        else:
+            lr_path, hr_path = self.pairs[index]
+            lr_img = self._load_image(lr_path)
+            hr_img = self._load_image(hr_path)
+
+        if self.full_frame:
+            lr_h, lr_w = lr_img.shape[:2]
+            target_h = lr_h * self.scale
+            target_w = lr_w * self.scale
+            hr_h, hr_w = hr_img.shape[:2]
+            if (hr_h, hr_w) != (target_h, target_w):
+                raise ValueError(
+                    "Full-frame paired SR requires HR dimensions to equal LR dimensions "
+                    f"multiplied by scale. Got LR={lr_w}x{lr_h}, HR={hr_w}x{hr_h}, "
+                    f"scale={self.scale}, expected HR={target_w}x{target_h}."
+                )
+            lr_img, hr_img = self._augment_pair(lr_img, hr_img, rotate=False)
+            return self._to_tensor(lr_img), self._to_tensor(hr_img)
+
+        hr_h, hr_w = hr_img.shape[:2]
+        if hr_h < self.patch_size or hr_w < self.patch_size:
+            new_h = max(hr_h, self.patch_size)
+            new_w = max(hr_w, self.patch_size)
+            hr_img = cv2.resize(hr_img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+            hr_h, hr_w = hr_img.shape[:2]
+
+        if self.random_crop:
+            top = np.random.randint(0, hr_h - self.patch_size + 1)
+            left = np.random.randint(0, hr_w - self.patch_size + 1)
+        else:
+            top = (hr_h - self.patch_size) // 2
+            left = (hr_w - self.patch_size) // 2
+        hr_crop = hr_img[top : top + self.patch_size, left : left + self.patch_size]
+
+        lr_h, lr_w = lr_img.shape[:2]
+        lr_top = int(round(top * lr_h / hr_h))
+        lr_left = int(round(left * lr_w / hr_w))
+        lr_crop_h = max(1, int(round(self.patch_size * lr_h / hr_h)))
+        lr_crop_w = max(1, int(round(self.patch_size * lr_w / hr_w)))
+        lr_top = min(max(lr_top, 0), max(lr_h - lr_crop_h, 0))
+        lr_left = min(max(lr_left, 0), max(lr_w - lr_crop_w, 0))
+        lr_crop = lr_img[lr_top : lr_top + lr_crop_h, lr_left : lr_left + lr_crop_w]
+
+        lr_size = self.patch_size // self.scale
+        lr_crop = cv2.resize(lr_crop, (lr_size, lr_size), interpolation=cv2.INTER_CUBIC)
+        lr_crop, hr_crop = self._augment_pair(lr_crop, hr_crop)
+        return self._to_tensor(lr_crop), self._to_tensor(hr_crop)
+
+
 class ThermalFullFrameSISRDataset(Dataset):
     """Full-frame grayscale SISR dataset for native 32x24 thermal images.
 

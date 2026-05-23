@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from models import get_model, list_models
 from utils.device import configure_runtime, resolve_device
-from utils.dataset import SISRDataset, ThermalFullFrameSISRDataset
+from utils.dataset import PairedImageSISRDataset, SISRDataset, ThermalFullFrameSISRDataset
 from utils.metrics import calculate_psnr, calculate_ssim
 
 
@@ -81,10 +81,26 @@ def build_val_dataset(
             val_fraction=float(config.get("val_fraction", 0.2)),
             split_seed=int(config.get("split_seed", 42)),
         )
-    if dataset_type != "patch":
-        raise ValueError("dataset_type must be one of: patch, thermal_full_frame")
+    if dataset_type == "paired":
+        patch_size = int(config.get("patch_size") or scale * 48)
+        val_lr_dir = config.get("val_lr_dir") or config.get("lr_dir")
+        if not val_lr_dir:
+            raise ValueError("dataset_type=paired requires val_lr_dir or lr_dir in config")
+        return PairedImageSISRDataset(
+            lr_dir=str(val_lr_dir),
+            hr_dir=val_dir,
+            scale=scale,
+            patch_size=patch_size,
+            grayscale=grayscale,
+            random_crop=False,
+            augment=False,
+            full_frame=bool(config.get("full_frame", False)),
+        )
 
-    patch_size = scale * 24
+    if dataset_type != "patch":
+        raise ValueError("dataset_type must be one of: patch, paired, thermal_full_frame")
+
+    patch_size = int(config.get("patch_size") or scale * 24)
     return SISRDataset(hr_dir=val_dir, scale=scale, patch_size=patch_size, grayscale=grayscale)
 
 

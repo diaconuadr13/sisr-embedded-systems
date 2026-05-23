@@ -110,82 +110,55 @@ experiments:
 - **Parameter count** and memory footprint
 
 
-## PC-only Video Super-Resolution
 
-This workflow trains, evaluates, and runs lightweight PyTorch video SR on a computer. Embedded boards, TFLite export, deployment metrics, and power metrics are intentionally out of scope for this phase.
+## Paired FLIR-IISR Image Super-Resolution
 
-Dataset layout:
+FLIR-IISR is a real-world paired infrared image SR dataset hosted on Hugging Face. The repository includes `FLIR-IISR.zip` (~1 GB) with 1,457 LR/HR image pairs and a separate large pretrained checkpoint that is not needed for this project.
+
+Prepare the dataset:
+
+```bash
+python tools/prepare_flir_iisr_dataset.py \
+  --raw_dir data/raw/flir_iisr \
+  --output data/flir_iisr \
+  --download \
+  --extract \
+  --mode symlink \
+  --overwrite
+```
+
+This creates:
 
 ```text
-data/video/train/clip_000/frame_000.png
-data/video/train/clip_000/frame_001.png
-data/video/train/clip_001/frame_000.png
-data/video/val/clip_000/frame_000.png
+data/flir_iisr/train/LR
+data/flir_iisr/train/HR
+data/flir_iisr/val/LR
+data/flir_iisr/val/HR
 ```
 
-A flat directory of frames is also supported and is treated as one clip.
-
-Create a toy dataset for smoke tests:
+Train an RGB paired-image model:
 
 ```bash
-python tools/create_toy_video_dataset.py --output data/video_toy
+python train.py --config configs/train_flir_iisr_espcn_micro_rgb_x4.yaml
 ```
 
-Train a small three-frame VideoESPCN model:
+The FLIR configs use `full_frame: true`, so the dataset uses the full LR image
+and full HR target. It does not crop patches. If an HR image size does not
+match `LR x scale`, training raises an error. No image resizing is performed in
+full-frame paired mode. The prepared FLIR-IISR split uses original `256x192`
+LR_4x BMPs and original `1024x768` HR BMPs with `scale: 4`; augmentation is
+disabled in the provided configs.
+
+Evaluate it:
 
 ```bash
-python train_video.py \
-  --config configs/train_video_espcn_x2_3f.yaml \
-  --hr_video_dir data/video_toy/train \
-  --val_video_dir data/video_toy/val \
-  --epochs 2 \
-  --samples_per_epoch 64 \
-  --batch_size 4 \
+python evaluate_pc.py \
+  --weights runs/ESPCN_Micro_FLIR_IISR_rgb_x4/FLIR-IISR/exp_YYYYMMDD_HHMMSS/best_model.pth \
+  --val_dir data/flir_iisr/val/HR \
   --device auto
 ```
 
-Evaluate a trained checkpoint:
-
-```bash
-python evaluate_video_pc.py \
-  --weights runs/.../best_model.pth \
-  --video_dir data/video_toy/val \
-  --device auto \
-  --output_json runs/.../video_eval.json
-```
-
-Run inference on a video file:
-
-```bash
-python video_infer.py \
-  --weights runs/.../best_model.pth \
-  --input input.mp4 \
-  --output output_sr.mp4 \
-  --device auto
-```
-
-Run the frame-by-frame baseline mode. For video checkpoints this repeats the center frame across the temporal window, so the model gets no neighboring-frame information:
-
-```bash
-python video_infer.py \
-  --weights runs/.../best_model.pth \
-  --input input.mp4 \
-  --output output_sisr_per_frame.mp4 \
-  --frame_by_frame
-```
-
-Run the pytest smoke tests:
-
-```bash
-python -m pytest tests
-```
-
-Known limitations:
-
-- This first VSR model does not use optical flow or deformable alignment.
-- Temporal windows are concatenated as channels.
-- It may improve stability/details, but can still fail on large motion.
-- Board/TFLite deployment is intentionally out of scope for this phase.
+This is single-image SR, not video SR. Use it to compare against the VSR work as a real paired LR/HR infrared baseline.
 
 ## Deployment Metrics
 
