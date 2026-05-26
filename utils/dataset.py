@@ -33,6 +33,16 @@ def _read_grayscale_image(path: Path) -> np.ndarray:
     raise RuntimeError(f"Unsupported image shape for grayscale conversion: {path} {img.shape}")
 
 
+def _read_color_image(path: Path, grayscale: bool = False) -> np.ndarray:
+    flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+    img = cv2.imread(str(path), flag)
+    if img is None:
+        raise RuntimeError(f"Failed to read image: {path}")
+    if grayscale:
+        return img
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+
 class SISRDataset(Dataset):
     def __init__(self, hr_dir: str, scale: int, patch_size: int,
                  cache_in_memory: bool = True,
@@ -384,4 +394,153 @@ class ThermalFullFrameSISRDataset(Dataset):
 
         lr_tensor = torch.from_numpy(np.ascontiguousarray(lr_img)).unsqueeze(0).float() / 255.0
         hr_tensor = torch.from_numpy(np.ascontiguousarray(hr_img)).unsqueeze(0).float() / 255.0
+        return lr_tensor, hr_tensor
+
+
+class RawVimeo90KVideoSRDataset(Dataset):
+    """Read Vimeo-90K septuplets directly and synthesize LR clips in memory.
+
+    The raw PNG files are never copied, resized, overwritten, or otherwise
+    modified on disk. Each sample returns an LR frame window with shape
+    T,C,H,W and the HR center-frame target at the decoded Vimeo frame size.
+    HR frames are never cropped or resized in memory; only LR frames are
+    downscaled from the full-resolution HR frames.
+    """
+
+    def __init__(
+        self,
+        root_dir: str,
+        split: str,
+        scale: int,
+        num_frames: int = 5,
+        patch_size: int = 96,
+        grayscale: bool = False,
+        random_crop: bool = True,
+        augment: bool = True,
+        samples_per_epoch: Optional[int] = None,
+        split_list: Optional[str] = None,
+    ) -> None:
+        self.root_dir = Path(root_dir)
+        self.split = split.lower()
+        self.scale = int(scale)
+        self.num_frames = int(num_frames)
+        self.patch_size = int(patch_size)
+        self.grayscale = bool(grayscale)
+        self.random_crop = bool(random_crop)
+        self.augment = bool(augment)
+        self.samples_per_epoch = int(samples_per_epoch) if samples_per_epoch else None
+
+        if self.split not in {"train", "val", "test"}:
+            raise ValueError("split must be one of: train, val, test")
+        if self.scale <= 0:
+            raise ValueError("scale must be > 0")
+        if self.num_frames <= 0 or self.num_frames % 2 == 0:
+            raise ValueError("num_frames must be a positive odd number")
+        if self.patch_size < 0:
+            raise ValueError("patch_size must be >= 0")
+        if not self.root_dir.exists():
+            raise FileNotFoundError(f"Vimeo-90K root does not exist: {self.root_dir}")
+
+        self.sequence_dir = self._find_sequence_dir(self.root_dir)
+        self.clip_dirs = self._load_clip_dirs(split_list)
+        if not self.clip_dirs:
+            raise FileNotFoundError(f"No valid Vimeo-90K clips found for split={self.split} in {self.root_dir}")
+
+    def _find_sequence_dir(self, root_dir: Path) -> Path:
+        candidates = [root_dir / "sequences", root_dir / "sequence"]
+        for candidate in candidates:
+            if candidate.is_dir():
+                return candidate
+        raise FileNotFoundError(
+            f"Could not find Vimeo-90K sequence directory under {root_dir}. "
+            "Expected 'sequences' or Kaggle mirror 'sequence'."
+        )
+
+    def _default_split_list(self) -> Path:
+        if self.split == "train":
+            return self.root_dir / "sep_trainlist.txt"
+        return self.root_dir / "sep_testlist.txt"
+
+    def _load_clip_dirs(self, split_list: Optional[str]) -> List[Path]:
+        list_path = Path(split_list) if split_list else self._default_split_list()
+        clip_dirs: List[Path] = []
+        if list_path.exists():
+            with list_path.open("r", encoding="utf-8") as f:
+                rel_paths = [line.strip() for line in f if line.strip()]
+            for rel in rel_paths:
+                clip_dir = self.sequence_dir / rel
+                if clip_dir.is_dir() and len(self._frame_paths(clip_dir)) >= self.num_frames:
+                    clip_dirs.append(clip_dir)
+            return clip_dirs
+
+        for clip_dir in sorted(p for p in self.sequence_dir.glob("*/*") if p.is_dir()):
+            if len(self._frame_paths(clip_dir)) >= self.num_frames:
+                clip_dirs.append(clip_dir)
+        return clip_dirs
+
+    def _frame_paths(self, clip_dir: Path) -> List[Path]:
+        def key(path: Path) -> Tuple[int, str]:
+            digits = "".join(ch for ch in path.stem if ch.isdigit())
+            return (int(digits) if digits else 0, path.name)
+
+        return sorted(
+            (p for p in clip_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS),
+            key=key,
+        )
+
+    def __len__(self) -> int:
+        return self.samples_per_epoch or len(self.clip_dirs)
+
+    def _select_clip_dir(self, index: int) -> Path:
+        if self.samples_per_epoch:
+            if self.random_crop:
+                return self.clip_dirs[int(np.random.randint(0, len(self.clip_dirs)))]
+            return self.clip_dirs[index % len(self.clip_dirs)]
+        return self.clip_dirs[index]
+
+    def _load_frame_window(self, clip_dir: Path) -> List[np.ndarray]:
+        frames = self._frame_paths(clip_dir)
+        if len(frames) < self.num_frames:
+            raise RuntimeError(f"Clip {clip_dir} has fewer than {self.num_frames} frames")
+        start = (len(frames) - self.num_frames) // 2
+        selected = frames[start : start + self.num_frames]
+        return [_read_color_image(path, grayscale=self.grayscale) for path in selected]
+
+    def _validate_clip(self, frames: List[np.ndarray]) -> List[np.ndarray]:
+        h, w = frames[0].shape[:2]
+        for frame in frames[1:]:
+            if frame.shape[:2] != (h, w):
+                raise ValueError(
+                    "All frames in a Vimeo-90K clip must have the same dimensions. "
+                    f"Got {w}x{h} and {frame.shape[1]}x{frame.shape[0]}."
+                )
+        if h <= 0 or w <= 0:
+            raise ValueError(
+                f"Vimeo-90K frame has invalid dimensions: {w}x{h}."
+            )
+        return frames
+
+    def _augment_clip(self, frames: List[np.ndarray]) -> List[np.ndarray]:
+        return frames
+
+    def _downscale_frame(self, frame: np.ndarray) -> np.ndarray:
+        h, w = frame.shape[:2]
+        lr_h = h // self.scale
+        lr_w = w // self.scale
+        return cv2.resize(frame, (lr_w, lr_h), interpolation=cv2.INTER_AREA)
+
+    def _to_frame_tensor(self, img: np.ndarray) -> torch.Tensor:
+        arr = np.ascontiguousarray(img)
+        if self.grayscale:
+            return torch.from_numpy(arr).unsqueeze(0).float() / 255.0
+        return torch.from_numpy(arr).permute(2, 0, 1).float() / 255.0
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        clip_dir = self._select_clip_dir(index)
+        hr_frames = self._augment_clip(self._validate_clip(self._load_frame_window(clip_dir)))
+        lr_frames = [self._downscale_frame(frame) for frame in hr_frames]
+
+        lr_tensor = torch.stack([self._to_frame_tensor(frame) for frame in lr_frames], dim=0)
+        center = self.num_frames // 2
+        hr_tensor = self._to_frame_tensor(hr_frames[center])
         return lr_tensor, hr_tensor

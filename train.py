@@ -21,7 +21,12 @@ from tqdm import tqdm
 
 from models import get_model
 from utils.device import configure_runtime, resolve_device
-from utils.dataset import PairedImageSISRDataset, SISRDataset, ThermalFullFrameSISRDataset
+from utils.dataset import (
+    PairedImageSISRDataset,
+    RawVimeo90KVideoSRDataset,
+    SISRDataset,
+    ThermalFullFrameSISRDataset,
+)
 from utils.metrics import calculate_psnr, calculate_ssim
 
 
@@ -30,8 +35,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "hr_dir": "data/train/DIV2K_train_HR",
     "val_dir": "data/val/DIV2K_valid_HR",
     "model_name": "ESPCN_base",
-    "arch": "ESPCN",  # model class: ESPCN | ESPCN_Light | FSRCNN
+    "arch": "ESPCN",
     "dataset_name": "DIV2K",
+    "run_group": "",
     "scale": 2,
     "batch_size": 64,
     "epochs": 100,
@@ -50,6 +56,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "hr_width": 32,
     "val_fraction": 0.2,
     "split_seed": 42,
+    "vimeo90k_raw_root": "data/raw/vimeo90k_kaggle",
+    "num_frames": 5,
+    "hidden_channels": 48,
+    "num_blocks": 4,
+    "samples_per_epoch": 0,
+    "val_samples": 0,
+    "early_stopping_patience": 20,
+    "early_stopping_min_delta": 1e-4,
 }
 
 
@@ -63,7 +77,7 @@ def parse_bool(value: str) -> bool:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Train SISR models (ESPCN, ESPCN_Light, FSRCNN).")
+    p = argparse.ArgumentParser(description="Train SISR and VSR models.")
     p.add_argument("--config", type=str, default=None, help="YAML/JSON config file (overrides CLI defaults)")
     for k, v in DEFAULT_CONFIG.items():
         flag = f"--{k}"
@@ -93,8 +107,11 @@ def load_config(args: argparse.Namespace) -> Dict[str, Any]:
     return cfg
 
 
-def create_experiment_dir(model_name: str, dataset_name: str) -> Path:
-    runs_dir = Path("runs") / model_name / dataset_name
+def create_experiment_dir(model_name: str, dataset_name: str, run_group: str = "") -> Path:
+    runs_dir = Path("runs")
+    if run_group:
+        runs_dir = runs_dir / run_group
+    runs_dir = runs_dir / model_name / dataset_name
     runs_dir.mkdir(parents=True, exist_ok=True)
     while True:
         exp_name = datetime.now().strftime("exp_%Y%m%d_%H%M%S")
@@ -114,7 +131,7 @@ def tensor_to_uint8(img: torch.Tensor) -> np.ndarray:
 
 def save_visual_samples(
     model: nn.Module,
-    dataset: SISRDataset,
+    dataset: Dataset,
     device: torch.device,
     epoch: int,
     visuals_dir: Path,
@@ -128,10 +145,15 @@ def save_visual_samples(
     with torch.no_grad():
         for sample_id, idx in enumerate(indices, start=1):
             lr_img, hr_img = dataset[idx]
-            lr_batch = lr_img.unsqueeze(0).to(device)
-            sr_img = torch.clamp(model(lr_batch).squeeze(0), 0.0, 1.0)
+            model_input = lr_img.unsqueeze(0).to(device)
+            sr_img = torch.clamp(model(model_input).squeeze(0), 0.0, 1.0)
+            if lr_img.ndim == 4:
+                center = lr_img.shape[0] // 2
+                lr_for_up = lr_img[center].unsqueeze(0).to(device)
+            else:
+                lr_for_up = model_input
             lr_up = F.interpolate(
-                lr_batch,
+                lr_for_up,
                 size=(hr_img.shape[1], hr_img.shape[2]),
                 mode="bicubic",
                 align_corners=False,
@@ -225,6 +247,40 @@ def create_datasets(cfg: Dict[str, Any]) -> Tuple[Dataset, Dataset]:
             )
         return train_dataset, val_dataset
 
+    if dataset_type in {"vimeo90k_raw", "raw_vimeo90k", "video_raw"}:
+        root_dir = str(cfg.get("vimeo90k_raw_root") or cfg.get("hr_video_dir"))
+        patch_size = int(cfg.get("patch_size") or 0)
+        num_frames = int(cfg.get("num_frames", 5))
+        train_samples = int(cfg.get("samples_per_epoch") or 0) or None
+        val_samples = int(cfg.get("val_samples") or 0) or None
+        if not grayscale:
+            print("[train] vimeo90k_raw uses grayscale full-resolution HR frames; forcing grayscale=true")
+            cfg["grayscale"] = True
+            grayscale = True
+        train_dataset = RawVimeo90KVideoSRDataset(
+            root_dir=root_dir,
+            split="train",
+            scale=scale,
+            num_frames=num_frames,
+            patch_size=patch_size,
+            grayscale=grayscale,
+            random_crop=True,
+            augment=False,
+            samples_per_epoch=train_samples,
+        )
+        val_dataset = RawVimeo90KVideoSRDataset(
+            root_dir=root_dir,
+            split="val",
+            scale=scale,
+            num_frames=num_frames,
+            patch_size=patch_size,
+            grayscale=grayscale,
+            random_crop=False,
+            augment=False,
+            samples_per_epoch=val_samples,
+        )
+        return train_dataset, val_dataset
+
     if dataset_type == "paired":
         patch_size = int(cfg.get("patch_size") or scale * 48)
         if not cfg.get("lr_dir"):
@@ -255,7 +311,7 @@ def create_datasets(cfg: Dict[str, Any]) -> Tuple[Dataset, Dataset]:
         return train_dataset, val_dataset
 
     if dataset_type != "patch":
-        raise ValueError("dataset_type must be one of: patch, paired, thermal_full_frame")
+        raise ValueError("dataset_type must be one of: patch, paired, thermal_full_frame, vimeo90k_raw")
 
     patch_size = int(cfg.get("patch_size") or scale * 24)
     train_dataset = SISRDataset(hr_dir=cfg["hr_dir"], scale=scale, patch_size=patch_size, grayscale=grayscale)
@@ -265,7 +321,11 @@ def create_datasets(cfg: Dict[str, Any]) -> Tuple[Dataset, Dataset]:
 
 def train(cfg: Dict[str, Any]) -> Path:
     """Run one full training experiment. Returns the experiment directory path."""
-    exp_dir = create_experiment_dir(cfg["model_name"], cfg["dataset_name"])
+    exp_dir = create_experiment_dir(
+        cfg["model_name"],
+        cfg["dataset_name"],
+        str(cfg.get("run_group", "")).strip(),
+    )
     visuals_dir = exp_dir / "visuals"
     visuals_dir.mkdir(parents=True, exist_ok=True)
 
@@ -280,6 +340,7 @@ def train(cfg: Dict[str, Any]) -> Path:
 
     train_dataset, val_dataset = create_datasets(cfg)
     grayscale = cfg.get("grayscale", False)
+    print(f"[train] train_samples={len(train_dataset):,}  val_samples={len(val_dataset):,}")
 
     train_loader = DataLoader(
         train_dataset,
@@ -300,12 +361,28 @@ def train(cfg: Dict[str, Any]) -> Path:
 
     arch = cfg.get("arch", "ESPCN")
     num_channels = 1 if grayscale else 3
-    model = get_model(arch, scale=cfg["scale"], device=device, num_channels=num_channels)
+    model = get_model(
+        arch,
+        scale=cfg["scale"],
+        device=device,
+        num_channels=num_channels,
+        num_frames=int(cfg.get("num_frames", 5)),
+        hidden_channels=int(cfg.get("hidden_channels", 48)),
+        num_blocks=int(cfg.get("num_blocks", 4)),
+    )
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[train] arch={arch}  params={trainable:,}")
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"])
     best_psnr = -float("inf")
+    epochs_without_improvement = 0
+    early_stopping_patience = int(cfg.get("early_stopping_patience", 0) or 0)
+    early_stopping_min_delta = float(cfg.get("early_stopping_min_delta", 0.0) or 0.0)
+    if early_stopping_patience > 0:
+        print(
+            f"[train] early_stopping patience={early_stopping_patience} "
+            f"min_delta={early_stopping_min_delta:g} metric=Val_PSNR"
+        )
 
     log_path = exp_dir / "training_log.csv"
     try:
@@ -370,8 +447,10 @@ def train(cfg: Dict[str, Any]) -> Path:
                       f"val_loss={avg_val_loss:.6f} | val_psnr={avg_psnr:.4f} | "
                       f"val_ssim={avg_ssim:.4f} | lr={current_lr:.6e}")
 
-                if avg_psnr > best_psnr:
+                improved = avg_psnr > best_psnr + early_stopping_min_delta
+                if improved:
                     best_psnr = avg_psnr
+                    epochs_without_improvement = 0
                     torch.save(
                         {
                             "state_dict": model.state_dict(),
@@ -384,6 +463,8 @@ def train(cfg: Dict[str, Any]) -> Path:
                         },
                         exp_dir / "best_model.pth",
                     )
+                else:
+                    epochs_without_improvement += 1
 
                 if epoch % 10 == 0:
                     torch.save(
@@ -399,6 +480,26 @@ def train(cfg: Dict[str, Any]) -> Path:
                         exp_dir / "last_model.pth",
                     )
                     save_visual_samples(model, val_dataset, device, epoch, visuals_dir)
+
+                if early_stopping_patience > 0 and epochs_without_improvement >= early_stopping_patience:
+                    torch.save(
+                        {
+                            "state_dict": model.state_dict(),
+                            "arch": arch,
+                            "scale": cfg["scale"],
+                            "model_name": cfg["model_name"],
+                            "device": str(device),
+                            "amp": use_amp,
+                            "config": cfg,
+                        },
+                        exp_dir / "last_model.pth",
+                    )
+                    print(
+                        f"[train] Early stopping at epoch {epoch}: "
+                        f"Val_PSNR did not improve by > {early_stopping_min_delta:g} "
+                        f"for {early_stopping_patience} epochs. best_psnr={best_psnr:.4f}"
+                    )
+                    break
 
     finally:
         # Deterministic VRAM release regardless of success/failure
