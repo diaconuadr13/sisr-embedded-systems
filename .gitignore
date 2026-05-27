@@ -14,6 +14,11 @@ data/
 sweep_logs/
 reports/deployment_metrics/
 *.png
+*.md
+*.zip 
+disertatie_adi/
+disertatie_adi_overleaf/
+prezentare_sisr_embedded_set2_source/
 # --- Model weights ---
 *.pth
 *.pt
