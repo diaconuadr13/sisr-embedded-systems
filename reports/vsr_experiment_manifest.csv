@@ -1,0 +1,14 @@
+experiment_id,model,dataset,num_frames,epochs,samples_per_epoch,checkpoint_path,status
+pilot_video_espcn_x2_3f,VideoESPCN,Vimeo90K,3,5,2000,,dry_run
+pilot_vsrbasic_x2_3f,VSRBasic,Vimeo90K,3,5,2000,,dry_run
+pilot_vsrbasic_x2_5f,VSRBasic,Vimeo90K,5,5,2000,,dry_run
+pilot_vsrbasic_x2_7f,VSRBasic,Vimeo90K,7,5,2000,,dry_run
+final_best_vsrbasic_x2,VSRBasic,Vimeo90K,5,50,16000,,dry_run
+final_best_vsrplusplus_x2,VSRPlusPlus,Vimeo90K,7,50,16000,,dry_run
+smoke_video_espcn_x2_3f,VideoESPCN,Vimeo90K,3,1,128,runs/vsr/Smoke_VideoESPCN_Vimeo90K_x2_3f/Vimeo90K/exp_20260526_223021/best_model.pth,completed
+smoke_vsrbasic_x2_5f,VSRBasic,Vimeo90K,5,1,128,runs/vsr/Smoke_VSRBasic_Vimeo90K_x2_5f/Vimeo90K/exp_20260526_223037/best_model.pth,completed
+ablation_vsrbasic_x2_3f,VSRBasic,Vimeo90K,3,25,8000,runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_3f/Vimeo90K/exp_20260526_223109/best_model.pth,completed
+ablation_vsrbasic_x2_5f,VSRBasic,Vimeo90K,5,25,8000,runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_5f/Vimeo90K/exp_20260526_231242/best_model.pth,completed
+ablation_vsrbasic_x2_7f,VSRBasic,Vimeo90K,7,25,8000,runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_7f/Vimeo90K/exp_20260527_001519/best_model.pth,completed
+ablation_vsrplusplus_x2_5f,VSRPlusPlus,Vimeo90K,5,25,8000,runs/vsr/Ablation_VSRPlusPlus_Vimeo90K_x2_5f/Vimeo90K/exp_20260527_014128/best_model.pth,completed
+ablation_vsrplusplus_x2_7f,VSRPlusPlus,Vimeo90K,7,25,8000,runs/vsr/Ablation_VSRPlusPlus_Vimeo90K_x2_7f/Vimeo90K/exp_20260527_051421/best_model.pth,completed

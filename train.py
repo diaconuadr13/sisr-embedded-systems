@@ -62,6 +62,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "num_blocks": 4,
     "samples_per_epoch": 0,
     "val_samples": 0,
+    "val_samples_per_epoch": 0,
+    "seed": 42,
+    "save_best_only": False,
     "early_stopping_patience": 20,
     "early_stopping_min_delta": 1e-4,
 }
@@ -120,6 +123,14 @@ def create_experiment_dir(model_name: str, dataset_name: str, run_group: str = "
             exp_dir.mkdir(parents=True, exist_ok=False)
             return exp_dir
         time.sleep(1)
+
+
+def seed_everything(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
 
 def tensor_to_uint8(img: torch.Tensor) -> np.ndarray:
@@ -252,7 +263,7 @@ def create_datasets(cfg: Dict[str, Any]) -> Tuple[Dataset, Dataset]:
         patch_size = int(cfg.get("patch_size") or 0)
         num_frames = int(cfg.get("num_frames", 5))
         train_samples = int(cfg.get("samples_per_epoch") or 0) or None
-        val_samples = int(cfg.get("val_samples") or 0) or None
+        val_samples = int(cfg.get("val_samples_per_epoch") or cfg.get("val_samples") or 0) or None
         if not grayscale:
             print("[train] vimeo90k_raw uses grayscale full-resolution HR frames; forcing grayscale=true")
             cfg["grayscale"] = True
@@ -321,6 +332,7 @@ def create_datasets(cfg: Dict[str, Any]) -> Tuple[Dataset, Dataset]:
 
 def train(cfg: Dict[str, Any]) -> Path:
     """Run one full training experiment. Returns the experiment directory path."""
+    seed_everything(int(cfg.get("seed", 42)))
     exp_dir = create_experiment_dir(
         cfg["model_name"],
         cfg["dataset_name"],
@@ -383,6 +395,7 @@ def train(cfg: Dict[str, Any]) -> Path:
             f"[train] early_stopping patience={early_stopping_patience} "
             f"min_delta={early_stopping_min_delta:g} metric=Val_PSNR"
         )
+    save_best_only = bool(cfg.get("save_best_only", False))
 
     log_path = exp_dir / "training_log.csv"
     try:
@@ -466,7 +479,7 @@ def train(cfg: Dict[str, Any]) -> Path:
                 else:
                     epochs_without_improvement += 1
 
-                if epoch % 10 == 0:
+                if epoch % 10 == 0 and not save_best_only:
                     torch.save(
                         {
                             "state_dict": model.state_dict(),
@@ -482,18 +495,19 @@ def train(cfg: Dict[str, Any]) -> Path:
                     save_visual_samples(model, val_dataset, device, epoch, visuals_dir)
 
                 if early_stopping_patience > 0 and epochs_without_improvement >= early_stopping_patience:
-                    torch.save(
-                        {
-                            "state_dict": model.state_dict(),
-                            "arch": arch,
-                            "scale": cfg["scale"],
-                            "model_name": cfg["model_name"],
-                            "device": str(device),
-                            "amp": use_amp,
-                            "config": cfg,
-                        },
-                        exp_dir / "last_model.pth",
-                    )
+                    if not save_best_only:
+                        torch.save(
+                            {
+                                "state_dict": model.state_dict(),
+                                "arch": arch,
+                                "scale": cfg["scale"],
+                                "model_name": cfg["model_name"],
+                                "device": str(device),
+                                "amp": use_amp,
+                                "config": cfg,
+                            },
+                            exp_dir / "last_model.pth",
+                        )
                     print(
                         f"[train] Early stopping at epoch {epoch}: "
                         f"Val_PSNR did not improve by > {early_stopping_min_delta:g} "
