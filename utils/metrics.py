@@ -44,3 +44,23 @@ def calculate_ssim(img1: torch.Tensor, img2: torch.Tensor) -> float:
             data_range=1.0,
         )
     )
+
+
+def calculate_temporal_consistency_error(sr_frames: torch.Tensor, hr_frames: torch.Tensor) -> float:
+    """Mean absolute error between SR and HR frame-to-frame differences.
+
+    Inputs are expected as T,C,H,W tensors in [0, 1]. A single-frame clip has no
+    temporal transition, so the metric is defined as 0.
+    """
+    if sr_frames.shape != hr_frames.shape:
+        raise ValueError(f"Temporal consistency requires matching shapes, got {sr_frames.shape} and {hr_frames.shape}")
+    if sr_frames.ndim != 4:
+        raise ValueError(f"Expected T,C,H,W tensors, got shape {sr_frames.shape}")
+    if sr_frames.shape[0] < 2:
+        return 0.0
+
+    sr_frames = torch.clamp(sr_frames.float(), 0.0, 1.0)
+    hr_frames = torch.clamp(hr_frames.float(), 0.0, 1.0)
+    sr_delta = sr_frames[1:] - sr_frames[:-1]
+    hr_delta = hr_frames[1:] - hr_frames[:-1]
+    return float(torch.mean(torch.abs(sr_delta - hr_delta)).item())

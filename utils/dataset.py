@@ -544,3 +544,141 @@ class RawVimeo90KVideoSRDataset(Dataset):
         center = self.num_frames // 2
         hr_tensor = self._to_frame_tensor(hr_frames[center])
         return lr_tensor, hr_tensor
+
+
+class VideoFolderSRDataset(Dataset):
+    """Video-folder evaluation dataset with synthetic bicubic LR inputs.
+
+    Expected layout:
+        root/clip_name/frame_000.png
+        root/clip_name/frame_001.png
+
+    Each sample returns an LR temporal window shaped T,C,H,W and the HR center
+    frame shaped C,H,W. Windows are edge-padded at clip boundaries so every HR
+    frame can be evaluated.
+    """
+
+    def __init__(
+        self,
+        root_dir: str,
+        scale: int,
+        num_frames: int = 5,
+        grayscale: bool = True,
+        patch_size: int = 0,
+        random_crop: bool = False,
+        include_all_frames: bool = True,
+        min_size: int = 16,
+    ) -> None:
+        self.root_dir = Path(root_dir)
+        self.scale = int(scale)
+        self.num_frames = int(num_frames)
+        self.grayscale = bool(grayscale)
+        self.patch_size = int(patch_size)
+        self.random_crop = bool(random_crop)
+        self.include_all_frames = bool(include_all_frames)
+        self.min_size = int(min_size)
+
+        if self.scale <= 0:
+            raise ValueError("scale must be > 0")
+        if self.num_frames <= 0 or self.num_frames % 2 == 0:
+            raise ValueError("num_frames must be a positive odd number")
+        if self.patch_size < 0:
+            raise ValueError("patch_size must be >= 0")
+        if not self.root_dir.exists():
+            raise FileNotFoundError(f"Video folder root does not exist: {self.root_dir}")
+
+        self.clips = self._load_clips()
+        self.samples: List[Tuple[int, int]] = []
+        for clip_idx, (_clip_name, frames) in enumerate(self.clips):
+            if include_all_frames:
+                self.samples.extend((clip_idx, frame_idx) for frame_idx in range(len(frames)))
+            else:
+                self.samples.append((clip_idx, len(frames) // 2))
+        if not self.samples:
+            raise FileNotFoundError(f"No video frames found under: {self.root_dir}")
+
+    def _natural_key(self, path: Path) -> Tuple[int, str]:
+        digits = "".join(ch for ch in path.stem if ch.isdigit())
+        return (int(digits) if digits else 0, path.name.lower())
+
+    def _load_clips(self) -> List[Tuple[str, List[Path]]]:
+        clips: List[Tuple[str, List[Path]]] = []
+        for clip_dir in sorted((p for p in self.root_dir.iterdir() if p.is_dir()), key=lambda p: p.name.lower()):
+            frames = sorted(
+                (
+                    p
+                    for p in clip_dir.iterdir()
+                    if p.is_file() and not p.name.startswith(".") and p.suffix.lower() in IMAGE_EXTENSIONS
+                ),
+                key=self._natural_key,
+            )
+            if frames:
+                clips.append((clip_dir.name, frames))
+        return clips
+
+    def __len__(self) -> int:
+        return len(self.samples)
+
+    def sample_info(self, index: int) -> dict:
+        clip_idx, frame_idx = self.samples[index]
+        clip_name, frames = self.clips[clip_idx]
+        return {
+            "clip_name": clip_name,
+            "frame_index": frame_idx,
+            "frame_path": str(frames[frame_idx]),
+        }
+
+    def _window_indices(self, center_idx: int, clip_len: int) -> List[int]:
+        half = self.num_frames // 2
+        return [min(max(i, 0), clip_len - 1) for i in range(center_idx - half, center_idx + half + 1)]
+
+    def _validate_frames(self, frames: List[np.ndarray]) -> None:
+        h, w = frames[0].shape[:2]
+        if h < self.min_size or w < self.min_size:
+            raise ValueError(f"Frame is too small for evaluation: {w}x{h}, min_size={self.min_size}")
+        if h // self.scale <= 0 or w // self.scale <= 0:
+            raise ValueError(f"Frame is too small for scale x{self.scale}: {w}x{h}")
+        for frame in frames[1:]:
+            if frame.shape[:2] != (h, w):
+                raise ValueError("All frames in a clip must have identical dimensions")
+
+    def _crop_frames(self, frames: List[np.ndarray]) -> List[np.ndarray]:
+        h, w = frames[0].shape[:2]
+        crop_h = h - (h % self.scale)
+        crop_w = w - (w % self.scale)
+        if self.patch_size > 0:
+            crop_h = min(crop_h, self.patch_size)
+            crop_w = min(crop_w, self.patch_size)
+        if crop_h <= 0 or crop_w <= 0:
+            raise ValueError(f"Invalid crop for scale x{self.scale}: {w}x{h}")
+        if self.random_crop and (h > crop_h or w > crop_w):
+            top = int(np.random.randint(0, h - crop_h + 1))
+            left = int(np.random.randint(0, w - crop_w + 1))
+        else:
+            top = max(0, (h - crop_h) // 2)
+            left = max(0, (w - crop_w) // 2)
+        return [frame[top : top + crop_h, left : left + crop_w] for frame in frames]
+
+    def _downscale_frame(self, frame: np.ndarray) -> np.ndarray:
+        h, w = frame.shape[:2]
+        return cv2.resize(frame, (w // self.scale, h // self.scale), interpolation=cv2.INTER_CUBIC)
+
+    def _to_tensor(self, img: np.ndarray) -> torch.Tensor:
+        arr = np.ascontiguousarray(img)
+        if self.grayscale:
+            return torch.from_numpy(arr).unsqueeze(0).float() / 255.0
+        return torch.from_numpy(arr).permute(2, 0, 1).float() / 255.0
+
+    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        clip_idx, frame_idx = self.samples[index]
+        _clip_name, paths = self.clips[clip_idx]
+        indices = self._window_indices(frame_idx, len(paths))
+        hr_frames = [_read_color_image(paths[i], grayscale=self.grayscale) for i in indices]
+        self._validate_frames(hr_frames)
+        hr_frames = self._crop_frames(hr_frames)
+        lr_frames = [self._downscale_frame(frame) for frame in hr_frames]
+        center = self.num_frames // 2
+        return (
+            torch.stack([self._to_tensor(frame) for frame in lr_frames], dim=0),
+            self._to_tensor(hr_frames[center]),
+        )
