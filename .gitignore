@@ -14,11 +14,15 @@ data/
 sweep_logs/
 reports/deployment_metrics/
 *.png
+*.mp4
+
 # --- Model weights ---
 *.pth
 *.pt
 *.onnx
+*.onnx.data
 *.tflite
+*.engine
 !pico_firmware/edsr_tiny_int8/edsr_tiny_int8.tflite
 !pico_firmware/srcnn_inference_int8/srcnn_int8.tflite
 

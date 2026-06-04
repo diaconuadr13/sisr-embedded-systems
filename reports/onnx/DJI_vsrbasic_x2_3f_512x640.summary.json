@@ -1,0 +1,29 @@
+{
+  "checkpoint": "runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_3f/Vimeo90K/exp_20260526_223109/best_model.pth",
+  "output": "reports/onnx/DJI_vsrbasic_x2_3f_512x640.onnx",
+  "model_name": "Ablation_VSRBasic_Vimeo90K_x2_3f",
+  "arch": "VSRBasic",
+  "scale": 2,
+  "num_frames": 3,
+  "grayscale": true,
+  "input_shape": [
+    1,
+    3,
+    1,
+    512,
+    640
+  ],
+  "output_shape": [
+    1,
+    1,
+    1024,
+    1280
+  ],
+  "requested_opset": 18,
+  "opsets": {
+    "ai.onnx": 18
+  },
+  "dynamic_hw": false,
+  "simplified": true,
+  "size_mb": 61.843281745910645
+}

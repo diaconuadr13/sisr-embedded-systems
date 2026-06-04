@@ -1,0 +1,28 @@
+{
+  "input_model": "reports/onnx/DJI_videoespcn_x2_3f_512x640.onnx",
+  "output_model": "reports/onnx/int8/DJI_videoespcn_x2_3f_512x640_int8_qdq.onnx",
+  "calibration_video": "/scratch/misc/DJI_20240622160552_0001_T.MP4",
+  "input_name": "lr_frames",
+  "input_shape": [
+    1,
+    3,
+    1,
+    512,
+    640
+  ],
+  "output_shape": [
+    1,
+    1,
+    1024,
+    1280
+  ],
+  "samples_requested": 64,
+  "samples_used": 41,
+  "stride": 16,
+  "quant_format": "QDQ",
+  "activation_type": "qint8",
+  "weight_type": "qint8",
+  "method": "minmax",
+  "per_channel": true,
+  "size_mb": 0.01986980438232422
+}
