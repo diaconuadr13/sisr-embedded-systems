@@ -16,6 +16,11 @@ reports/deployment_metrics/
 *.png
 *.mp4
 
+*.md
+*.zip 
+disertatie_adi/
+disertatie_adi_overleaf/
+prezentare_sisr_embedded_set2_source/
 # --- Model weights ---
 *.pth
 *.pt
