@@ -23,6 +23,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from models import get_model
+from utils.argparse_compat import add_boolean_optional_argument
 from utils.device import resolve_device
 
 
@@ -32,13 +33,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--input", required=True, help="Input video path.")
     p.add_argument("--output", required=True, help="Output SR MP4 path.")
     p.add_argument("--device", default="auto")
-    p.add_argument("--amp", action=argparse.BooleanOptionalAction, default=True)
+    add_boolean_optional_argument(p, "--amp", default=True)
     p.add_argument("--arch", default=None)
     p.add_argument("--scale", type=int, default=None)
     p.add_argument("--num-frames", type=int, default=None)
     p.add_argument("--hidden-channels", type=int, default=None)
     p.add_argument("--num-blocks", type=int, default=None)
-    p.add_argument("--grayscale", action=argparse.BooleanOptionalAction, default=None)
+    add_boolean_optional_argument(p, "--grayscale", default=None)
     p.add_argument("--max-frames", type=int, default=0, help="Optional cap for smoke tests.")
     p.add_argument("--codec", default="mp4v", help="OpenCV fourcc, e.g. mp4v or avc1.")
     p.add_argument("--progress-every", type=int, default=100)

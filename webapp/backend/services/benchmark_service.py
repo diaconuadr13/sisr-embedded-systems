@@ -76,7 +76,8 @@ def run_benchmark(
 
     params = _count_params(model)
 
-    lr = torch.rand(1, 3, BENCH_LR_HEIGHT, BENCH_LR_WIDTH, device=device)
+    num_channels = int(getattr(model, "sisr_num_channels", 3))
+    lr = torch.rand(1, num_channels, BENCH_LR_HEIGHT, BENCH_LR_WIDTH, device=device)
 
     # Warmup
     with torch.no_grad():

@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from models import get_model
+from utils.argparse_compat import add_boolean_optional_argument
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,11 +37,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-frames", type=int, default=None)
     p.add_argument("--hidden-channels", type=int, default=None)
     p.add_argument("--num-blocks", type=int, default=None)
-    p.add_argument("--grayscale", action=argparse.BooleanOptionalAction, default=None)
+    add_boolean_optional_argument(p, "--grayscale", default=None)
     p.add_argument("--opset", type=int, default=18)
     p.add_argument("--dynamic-hw", action="store_true", help="Export dynamic H/W axes instead of fixed size.")
-    p.add_argument("--simplify", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--validate", action=argparse.BooleanOptionalAction, default=True)
+    add_boolean_optional_argument(p, "--simplify", default=True)
+    add_boolean_optional_argument(p, "--validate", default=True)
     return p.parse_args()
 
 

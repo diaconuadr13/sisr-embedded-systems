@@ -1,0 +1,24 @@
+{
+  "input": "/home/adiaconu/Desktop/sisr-embedded-systems/inference_inputs/thermal_21.png",
+  "output": "/home/adiaconu/Desktop/sisr-embedded-systems/orin_report/image/SRCNN_gray_x2_Flickr2K_exp_20260426_183729/thermal_21_sr.png",
+  "checkpoint": "/home/adiaconu/Desktop/sisr-embedded-systems/runs/SRCNN_gray_x2/Flickr2K/exp_20260426_183729/best_model.pth",
+  "model_name": "SRCNN_gray_x2",
+  "arch": "SRCNN",
+  "scale": 2,
+  "grayscale": true,
+  "device": "cuda",
+  "amp_used": true,
+  "source_size": [
+    32,
+    24
+  ],
+  "output_size": [
+    64,
+    48
+  ],
+  "parameters": 57281,
+  "warmup_iters": 10,
+  "measure_iters": 100,
+  "avg_inference_ms": 0.6989046593662351,
+  "estimated_fps": 1430.810320976823
+}

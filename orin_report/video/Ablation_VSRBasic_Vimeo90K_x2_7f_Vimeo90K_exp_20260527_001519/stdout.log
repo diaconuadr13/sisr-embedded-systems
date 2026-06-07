@@ -1,0 +1,34 @@
+frames=1/300 avg_infer_ms=3488.41 wall_fps=0.28
+frames=100/300 avg_infer_ms=412.11 wall_fps=2.30
+frames=200/300 avg_infer_ms=395.08 wall_fps=2.40
+frames=300/300 avg_infer_ms=389.37 wall_fps=2.43
+{
+  "input": "/home/adiaconu/Desktop/sisr-embedded-systems/inference_inputs/DJI_20240622160552_0001_T.MP4",
+  "output": "/home/adiaconu/Desktop/sisr-embedded-systems/orin_report/video/Ablation_VSRBasic_Vimeo90K_x2_7f_Vimeo90K_exp_20260527_001519/DJI_20240622160552_0001_T_sr_preview_300f.mp4",
+  "checkpoint": "/home/adiaconu/Desktop/sisr-embedded-systems/runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_7f/Vimeo90K/exp_20260527_001519/best_model.pth",
+  "model_name": "Ablation_VSRBasic_Vimeo90K_x2_7f",
+  "arch": "VSRBasic",
+  "scale": 2,
+  "num_frames": 7,
+  "hidden_channels": 48,
+  "num_blocks": 4,
+  "grayscale": true,
+  "device": "cuda",
+  "amp_used": true,
+  "source_size": [
+    640,
+    512
+  ],
+  "output_size": [
+    1280,
+    1024
+  ],
+  "source_fps": 29.97002997002997,
+  "frames_written": 300,
+  "source_frame_count": 10418,
+  "elapsed_seconds": 123.30903373402543,
+  "avg_inference_ms_per_frame": 389.3680516440266,
+  "effective_wall_fps": 2.4329117739020862,
+  "codec": "mp4v",
+  "input_fps_fraction": "30000/1001"
+}

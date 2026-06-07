@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import csv
 import json
@@ -13,6 +15,7 @@ import torch.nn.functional as F
 from models import get_model
 from utils.dataset import VideoFolderSRDataset
 from utils.device import resolve_device
+from utils.argparse_compat import add_boolean_optional_argument
 from utils.metrics import calculate_psnr, calculate_ssim, calculate_temporal_consistency_error
 from utils.model_stats import count_trainable_params
 
@@ -27,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--arch", default="VSRBasic")
     p.add_argument("--output-dir", required=True)
     p.add_argument("--device", default="auto")
-    p.add_argument("--grayscale", action=argparse.BooleanOptionalAction, default=True)
+    add_boolean_optional_argument(p, "--grayscale", default=True)
     p.add_argument("--max-samples", type=int, default=0, help="Optional cap for quick checks")
     p.add_argument("--save-samples", type=int, default=6)
     p.add_argument("--hidden-channels", type=int, default=None)

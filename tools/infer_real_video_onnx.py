@@ -22,6 +22,7 @@ from typing import Any
 import cv2
 import numpy as np
 import onnxruntime as ort
+from utils.argparse_compat import add_boolean_optional_argument
 
 
 def preload_cuda_dependencies() -> None:
@@ -59,9 +60,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--input", required=True, help="Input video path.")
     p.add_argument("--output", required=True, help="Output SR MP4 path.")
     p.add_argument("--provider", default="auto", help="auto, cpu, cuda, tensorrt, or exact ORT provider name.")
-    p.add_argument("--trt-fp16", action=argparse.BooleanOptionalAction, default=False)
-    p.add_argument("--trt-int8", action=argparse.BooleanOptionalAction, default=False)
-    p.add_argument("--trt-cache", action=argparse.BooleanOptionalAction, default=True)
+    add_boolean_optional_argument(p, "--trt-fp16", default=False)
+    add_boolean_optional_argument(p, "--trt-int8", default=False)
+    add_boolean_optional_argument(p, "--trt-cache", default=True)
     p.add_argument("--trt-cache-dir", default="reports/onnx/trt_cache")
     p.add_argument("--max-frames", type=int, default=0, help="Optional cap for smoke tests.")
     p.add_argument("--codec", default="mp4v", help="OpenCV fourcc, e.g. mp4v or avc1.")

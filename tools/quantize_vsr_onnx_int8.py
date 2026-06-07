@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 import onnx
 import onnxruntime as ort
+from utils.argparse_compat import add_boolean_optional_argument
 from onnxruntime.quantization import (
     CalibrationDataReader,
     CalibrationMethod,
@@ -35,8 +36,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--activation-type", choices=["qint8", "quint8"], default="qint8")
     p.add_argument("--weight-type", choices=["qint8", "quint8"], default="qint8")
     p.add_argument("--method", choices=["minmax", "entropy", "percentile"], default="minmax")
-    p.add_argument("--per-channel", action=argparse.BooleanOptionalAction, default=True)
-    p.add_argument("--extra-options", action=argparse.BooleanOptionalAction, default=True)
+    add_boolean_optional_argument(p, "--per-channel", default=True)
+    add_boolean_optional_argument(p, "--extra-options", default=True)
     return p.parse_args()
 
 

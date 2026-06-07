@@ -1,0 +1,24 @@
+{
+  "input": "/home/adiaconu/Desktop/sisr-embedded-systems/inference_inputs/thermal_21.png",
+  "output": "/home/adiaconu/Desktop/sisr-embedded-systems/orin_report/image/CARN_M_gray_x2_Flickr2K_exp_20260426_182223/thermal_21_sr.png",
+  "checkpoint": "/home/adiaconu/Desktop/sisr-embedded-systems/runs/CARN_M_gray_x2/Flickr2K/exp_20260426_182223/best_model.pth",
+  "model_name": "CARN_M_gray_x2",
+  "arch": "CARN_M",
+  "scale": 2,
+  "grayscale": true,
+  "device": "cuda",
+  "amp_used": true,
+  "source_size": [
+    32,
+    24
+  ],
+  "output_size": [
+    64,
+    48
+  ],
+  "parameters": 206852,
+  "warmup_iters": 10,
+  "measure_iters": 100,
+  "avg_inference_ms": 6.134727549506351,
+  "estimated_fps": 163.00642399033154
+}

@@ -1,0 +1,24 @@
+{
+  "input": "/home/adiaconu/Desktop/sisr-embedded-systems/inference_inputs/thermal_21.png",
+  "output": "/home/adiaconu/Desktop/sisr-embedded-systems/orin_report/image/EDSR_Tiny_gray_x2_Flickr2K_exp_20260426_184153/thermal_21_sr.png",
+  "checkpoint": "/home/adiaconu/Desktop/sisr-embedded-systems/runs/EDSR_Tiny_gray_x2/Flickr2K/exp_20260426_184153/best_model.pth",
+  "model_name": "EDSR_Tiny_gray_x2",
+  "arch": "EDSR_Tiny",
+  "scale": 2,
+  "grayscale": true,
+  "device": "cuda",
+  "amp_used": true,
+  "source_size": [
+    32,
+    24
+  ],
+  "output_size": [
+    64,
+    48
+  ],
+  "parameters": 158692,
+  "warmup_iters": 10,
+  "measure_iters": 100,
+  "avg_inference_ms": 4.321901856455952,
+  "estimated_fps": 231.37961786573757
+}

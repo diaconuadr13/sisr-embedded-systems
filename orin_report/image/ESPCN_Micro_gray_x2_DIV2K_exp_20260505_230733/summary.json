@@ -1,0 +1,24 @@
+{
+  "input": "/home/adiaconu/Desktop/sisr-embedded-systems/inference_inputs/thermal_21.png",
+  "output": "/home/adiaconu/Desktop/sisr-embedded-systems/orin_report/image/ESPCN_Micro_gray_x2_DIV2K_exp_20260505_230733/thermal_21_sr.png",
+  "checkpoint": "/home/adiaconu/Desktop/sisr-embedded-systems/runs/ESPCN_Micro_gray_x2/DIV2K/exp_20260505_230733/best_model.pth",
+  "model_name": "ESPCN_Micro_gray_x2",
+  "arch": "ESPCN_Micro",
+  "scale": 2,
+  "grayscale": true,
+  "device": "cuda",
+  "amp_used": true,
+  "source_size": [
+    32,
+    24
+  ],
+  "output_size": [
+    64,
+    48
+  ],
+  "parameters": 1612,
+  "warmup_iters": 10,
+  "measure_iters": 100,
+  "avg_inference_ms": 0.6902902270667255,
+  "estimated_fps": 1448.6660259545251
+}

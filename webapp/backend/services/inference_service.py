@@ -49,12 +49,15 @@ def _load_torch():
     return torch, np
 
 
-def _resolve_checkpoint_metadata(ckpt_path: Path, ckpt: Any) -> tuple[str, int]:
+def _resolve_checkpoint_metadata(ckpt_path: Path, ckpt: Any) -> tuple[str, int, bool]:
     arch = None
     scale = None
+    grayscale = False
     if isinstance(ckpt, dict):
         arch = ckpt.get("arch")
         scale = ckpt.get("scale")
+        cfg = ckpt.get("config") or {}
+        grayscale = bool(cfg.get("grayscale", False))
     if arch is None or scale is None:
         # Fall back to training config.json in the run dir (one level up from checkpoint).
         cfg_path = ckpt_path.parent / "config.json"
@@ -62,9 +65,10 @@ def _resolve_checkpoint_metadata(ckpt_path: Path, ckpt: Any) -> tuple[str, int]:
             cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
             arch = arch or cfg.get("arch")
             scale = scale or cfg.get("scale")
+            grayscale = grayscale or bool(cfg.get("grayscale", False))
     if arch is None or scale is None:
         raise ValueError("Could not determine arch/scale from checkpoint or config.json")
-    return str(arch), int(scale)
+    return str(arch), int(scale), grayscale
 
 
 def _load_model(ckpt_path: Path, device_str: str):
@@ -78,10 +82,12 @@ def _load_model(ckpt_path: Path, device_str: str):
         return cached
 
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=True)
-    arch, scale = _resolve_checkpoint_metadata(ckpt_path, ckpt)
+    arch, scale, grayscale = _resolve_checkpoint_metadata(ckpt_path, ckpt)
 
     device = resolve_device(device_str)
-    model = get_model(arch, scale=scale, device=device)
+    num_channels = 1 if grayscale else 3
+    model = get_model(arch, scale=scale, device=device, num_channels=num_channels)
+    model.sisr_num_channels = num_channels
 
     state_dict = ckpt["state_dict"] if isinstance(ckpt, dict) and "state_dict" in ckpt else ckpt
     model.load_state_dict(state_dict)
@@ -110,15 +116,26 @@ def _save_rgb(img_rgb, dest: Path) -> None:
     cv2.imwrite(str(dest), bgr)
 
 
-def _tensor_from_rgb(img_rgb, device):
+def _tensor_from_rgb(img_rgb, device, grayscale: bool = False):
+    import cv2
+
     torch, _ = _load_torch()
-    t = torch.from_numpy(img_rgb).permute(2, 0, 1).float().div(255.0).unsqueeze(0)
+    if grayscale:
+        img = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+        t = torch.from_numpy(img).unsqueeze(0).float().div(255.0).unsqueeze(0)
+    else:
+        t = torch.from_numpy(img_rgb).permute(2, 0, 1).float().div(255.0).unsqueeze(0)
     return t.to(device, non_blocking=True)
 
 
 def _tensor_to_rgb(t):
     _, np = _load_torch()
-    arr = t.detach().cpu().clamp(0.0, 1.0).squeeze(0).permute(1, 2, 0).numpy()
+    arr = t.detach().cpu().clamp(0.0, 1.0).squeeze(0)
+    if arr.ndim == 3 and arr.shape[0] == 1:
+        arr = arr.squeeze(0).numpy()
+        arr = np.repeat(arr[:, :, None], 3, axis=2)
+    else:
+        arr = arr.permute(1, 2, 0).numpy()
     return (arr * 255.0).round().astype(np.uint8)
 
 
@@ -194,7 +211,8 @@ def run_inference(
 
     bicubic_rgb = _bicubic_upscale(lr_rgb, scale)
 
-    lr_t = _tensor_from_rgb(lr_rgb, device)
+    grayscale = getattr(model, "sisr_num_channels", 3) == 1
+    lr_t = _tensor_from_rgb(lr_rgb, device, grayscale=grayscale)
     with torch.no_grad():
         if device.type == "cuda":
             torch.cuda.synchronize(device)
