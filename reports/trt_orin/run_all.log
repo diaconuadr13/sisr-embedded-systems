@@ -1,0 +1,54 @@
+nohup: ignoring input
+[2026-06-20 17:41:18] START full Orin comparison
+[2026-06-20 17:41:18] free space: 1,4G
+[2026-06-20 17:41:18] ===== espcn_3f =====
+  ONNX-CUDA EP :   189.396 ms  (   5.3 fps)
+  TRT FP16     :     1.784 ms  ( 560.6 fps)  [build 96s]
+  TRT INT8     :     1.487 ms  ( 672.4 fps)  [build 280s]
+  PSNR INT8/FP16: 39.53 dB | ONNX/FP16: 72.51 dB
+  -> appended reports/trt_orin/all_models.jsonl
+[2026-06-20 17:48:00] espcn_3f OK   (free: 1,4G)
+[2026-06-20 17:48:00] ===== vsrbasic_3f =====
+  ONNX-CUDA EP :   434.706 ms  (   2.3 fps)
+  TRT FP16     :    50.099 ms  (  20.0 fps)  [build 417s]
+  TRT INT8     :    38.282 ms  (  26.1 fps)  [build 925s]
+  PSNR INT8/FP16: 57.7 dB | ONNX/FP16: 74.66 dB
+  -> appended reports/trt_orin/all_models.jsonl
+[2026-06-20 18:11:52] vsrbasic_3f OK   (free: 1,4G)
+[2026-06-20 18:11:52] ===== vsrbasic_7f =====
+  ONNX-CUDA EP :   708.879 ms  (   1.4 fps)
+  TRT FP16     :   103.397 ms  (   9.7 fps)  [build 719s]
+  TRT INT8     :    78.119 ms  (  12.8 fps)  [build 2048s]
+  PSNR INT8/FP16: 55.93 dB | ONNX/FP16: 74.53 dB
+  -> appended reports/trt_orin/all_models.jsonl
+[2026-06-20 19:00:19] vsrbasic_7f OK   (free: 1,3G)
+[2026-06-20 19:00:19] ===== vsrplusplus_7f =====
+  ONNX-CUDA EP :  1774.645 ms  (   0.6 fps)
+  TRT FP16     :   379.345 ms  (   2.6 fps)  [build 1602s]
+  TRT INT8     :   256.051 ms  (   3.9 fps)  [build 7844s]
+  PSNR INT8/FP16: 53.13 dB | ONNX/FP16: 74.22 dB
+  -> appended reports/trt_orin/all_models.jsonl
+[2026-06-20 21:45:29] vsrplusplus_7f OK   (free: 1,1G)
+[2026-06-20 21:45:29] ===== generating report =====
+Wrote reports/trt_orin/ALL_MODELS.md
+# On-Jetson runtime comparison (AGX Orin) — all VSR architectures
+
+All runtimes executed **natively on the Jetson AGX Orin** (JetPack 5.1.2, CUDA 11.4,
+TensorRT 8.5.2.2, onnxruntime-gpu 1.17.0). Latency = pure GPU compute, 200 iters,
+identical harness. INT8 calibrated on real thermal frames (IInt8EntropyCalibrator2).
+
+| Model | input | PyTorch-Orin | ONNX-CUDA EP | TRT FP16 | TRT INT8 | INT8 fps | PSNR INT8/FP16 | PSNR ONNX/FP16 |
+|---|---|--:|--:|--:|--:|--:|--:|--:|
+
+| espcn_3f | 3f 512x640 | 12.56 ms | 189.40 ms | **1.78 ms** | **1.49 ms** | 672 | 39.53 dB | 72.51 dB |
+| vsrbasic_3f | 3f 512x640 | n/a | 434.71 ms | **50.10 ms** | **38.28 ms** | 26 | 57.70 dB | 74.66 dB |
+| vsrbasic_7f | 7f 512x640 | n/a | 708.88 ms | **103.40 ms** | **78.12 ms** | 13 | 55.93 dB | 74.53 dB |
+| vsrplusplus_7f | 7f 512x640 | n/a | 1774.64 ms | **379.35 ms** | **256.05 ms** | 4 | 53.13 dB | 74.22 dB |
+
+## Notes
+
+- **TensorRT (FP16/INT8) runs natively on the Orin** — no PC fallback. TensorRT was pre-installed; only onnxruntime-gpu was added.
+- **ONNX-Runtime CUDA EP is unsuitable here**: the 5D temporal-stacked input forces many nodes onto CPU (+memcpy), so it is far slower than TensorRT.
+- The PC-exported INT8 QDQ model does not parse on TRT 8.5 (per-channel + quantized bias); INT8 is therefore (re)calibrated on-device, which is the correct workflow since a TRT engine is hardware/TRT-version specific.
+- ONNX models re-saved with `ir_version=9` (`reports/onnx/orin_ir9/`) because onnxruntime 1.17 / TRT 8.5 reject the IR-v10 originals.
+[2026-06-20 21:45:29] ALL DONE. Report: reports/trt_orin/ALL_MODELS.md
