@@ -1,0 +1,17 @@
+{
+  "dataset": "Vid4",
+  "video_root": "data/vsr/Vid4",
+  "checkpoint": "runs/vsr/VideoESPCN_Vimeo90K_x2_3f/Vimeo90K/exp_20260526_152716/best_model.pth",
+  "arch": "VideoESPCN",
+  "scale": 2,
+  "num_frames": 3,
+  "frames_evaluated": 171,
+  "psnr": 27.848614240947523,
+  "ssim": 0.9097734619259189,
+  "temporal_consistency_error": 0.03249111631885171,
+  "avg_inference_ms_per_frame": 2.9531727721628718,
+  "estimated_fps": 338.6188608489746,
+  "parameters": 12836,
+  "macs": 1323786240,
+  "flops": 2647572480
+}

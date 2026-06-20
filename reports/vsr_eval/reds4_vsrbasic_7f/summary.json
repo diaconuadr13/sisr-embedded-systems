@@ -1,0 +1,17 @@
+{
+  "dataset": "REDS4",
+  "video_root": "data/vsr/REDS4",
+  "checkpoint": "runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_7f/Vimeo90K/exp_20260527_001519/best_model.pth",
+  "arch": "VSRBasic",
+  "scale": 2,
+  "num_frames": 7,
+  "frames_evaluated": 400,
+  "psnr": 31.316544065475465,
+  "ssim": 0.9278722587463091,
+  "temporal_consistency_error": 0.023419605335220695,
+  "avg_inference_ms_per_frame": 299.85532060993137,
+  "estimated_fps": 3.334941657749859,
+  "parameters": 480052,
+  "macs": 569626214400,
+  "flops": 1139252428800
+}
