@@ -1,0 +1,17 @@
+{
+  "dataset": "Vid4",
+  "video_root": "data/vsr/Vid4",
+  "checkpoint": "runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_3f/Vimeo90K/exp_20260526_223109/best_model.pth",
+  "arch": "VSRBasic",
+  "scale": 2,
+  "num_frames": 3,
+  "frames_evaluated": 171,
+  "psnr": 28.403353852835316,
+  "ssim": 0.9210509667657397,
+  "temporal_consistency_error": 0.030525685288012028,
+  "avg_inference_ms_per_frame": 44.505798701763325,
+  "estimated_fps": 22.468982226362783,
+  "parameters": 480052,
+  "macs": 118558494720,
+  "flops": 237116989440
+}

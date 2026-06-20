@@ -1,0 +1,17 @@
+{
+  "dataset": "UDM10",
+  "video_root": "data/vsr/UDM10",
+  "checkpoint": "runs/vsr/Final_VSRPlusPlus_Vimeo90K_x2_7f/Vimeo90K/exp_20260527_110148/best_model.pth",
+  "arch": "VSRPlusPlus",
+  "scale": 2,
+  "num_frames": 7,
+  "frames_evaluated": 320,
+  "psnr": 38.55005220770836,
+  "ssim": 0.979808774368528,
+  "temporal_consistency_error": 0.008378555602394044,
+  "avg_inference_ms_per_frame": 820.3857761533982,
+  "estimated_fps": 1.2189387347605805,
+  "parameters": 1860997,
+  "macs": 2570242682880,
+  "flops": 5140485365760
+}

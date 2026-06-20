@@ -1,0 +1,17 @@
+{
+  "dataset": "UDM10",
+  "video_root": "data/vsr/UDM10",
+  "checkpoint": "runs/vsr/Ablation_VSRBasic_Vimeo90K_x2_7f/Vimeo90K/exp_20260527_001519/best_model.pth",
+  "arch": "VSRBasic",
+  "scale": 2,
+  "num_frames": 7,
+  "frames_evaluated": 320,
+  "psnr": 38.17931226491928,
+  "ssim": 0.9778858577015418,
+  "temporal_consistency_error": 0.008701148768886923,
+  "avg_inference_ms_per_frame": 252.15947113447328,
+  "estimated_fps": 3.965744358127692,
+  "parameters": 480052,
+  "macs": 566066050560,
+  "flops": 1132132101120
+}

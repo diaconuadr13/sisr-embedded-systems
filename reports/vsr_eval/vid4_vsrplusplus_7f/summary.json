@@ -1,0 +1,17 @@
+{
+  "dataset": "Vid4",
+  "video_root": "data/vsr/Vid4",
+  "checkpoint": "runs/vsr/Final_VSRPlusPlus_Vimeo90K_x2_7f/Vimeo90K/exp_20260527_110148/best_model.pth",
+  "arch": "VSRPlusPlus",
+  "scale": 2,
+  "num_frames": 7,
+  "frames_evaluated": 171,
+  "psnr": 28.517209426701417,
+  "ssim": 0.9316858376311284,
+  "temporal_consistency_error": 0.03006741125136614,
+  "avg_inference_ms_per_frame": 322.44401236918446,
+  "estimated_fps": 3.101313597521678,
+  "parameters": 1860997,
+  "macs": 1163883479040,
+  "flops": 2327766958080
+}
