@@ -94,6 +94,9 @@ def load_model(arch: str, pth_path: str):
     elif arch == "espcn":
         from models.espcn import ESPCN
         model = ESPCN(scale_factor=scale, num_channels=num_channels)
+    elif arch == "espcn":
+        from models.espcn import ESPCN
+        model = ESPCN(scale_factor=scale, num_channels=num_channels)
     elif arch == "fsrcnn":
         from models.fsrcnn import FSRCNN
         model = FSRCNN(scale_factor=scale, num_channels=num_channels)
