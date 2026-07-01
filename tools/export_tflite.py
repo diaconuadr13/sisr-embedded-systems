@@ -48,7 +48,7 @@ import torch.nn as nn
 
 sys.path.insert(0, ".")
 
-ARCHS = ["espcn_micro", "espcn_light", "fsrcnn", "srcnn", "edsr_tiny"]
+ARCHS = ["espcn_micro", "espcn_light", "espcn", "fsrcnn", "srcnn", "edsr_tiny"]
 
 
 class SRCNNNoUpsample(nn.Module):
@@ -91,6 +91,9 @@ def load_model(arch: str, pth_path: str):
     elif arch == "espcn_light":
         from models.espcn_light import ESPCNLight
         model = ESPCNLight(scale_factor=scale, num_channels=num_channels)
+    elif arch == "espcn":
+        from models.espcn import ESPCN
+        model = ESPCN(scale_factor=scale, num_channels=num_channels)
     elif arch == "fsrcnn":
         from models.fsrcnn import FSRCNN
         model = FSRCNN(scale_factor=scale, num_channels=num_channels)
@@ -426,26 +429,16 @@ def export_via_onnx2tf(model: nn.Module, sample_input: torch.Tensor,
     def cleanup():
         shutil.rmtree(tmp, ignore_errors=True)
 
-    calib_path = None
-    if do_int8 and Path(val_dir).exists():
-        print(f"  Calibrating on {val_dir} ...")
-        batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w, scale))
-        if not batches:
-            print(f"  [WARN] no calibration images found in {val_dir} — producing float32 model only")
-        else:
-            calib = np.concatenate(batches, axis=0)  # [N, 1, H, W] — ONNX NCHW format
-            print(f"  Calibrated with {len(batches)} samples.")
-            calib_path = tmp / "calib.npy"
-            np.save(str(calib_path), calib)
-
+    # onnx2tf only translates the graph (float32 SavedModel + float32 TFLite). We do NOT
+    # use onnx2tf's own INT8 (-oiqt): its calibration silently produced a *dynamic-range*
+    # (hybrid) model — INT8 weights but float32 activations — which esp-nn TFLite Micro
+    # rejects ("Hybrid models are not supported"). Instead we quantize the onnx2tf
+    # SavedModel with the TF converter to a true full-integer INT8 model (int8 I/O),
+    # the same proven path deployed ESPCN_Micro used.
     cmd = [sys.executable, "-m", "onnx2tf", "-i", str(onnx_path), "-o", str(tmp)]
-    if do_int8 and calib_path:
-        cmd += ["-oiqt", "-qt", "per-channel",
-                "-cind", "input", str(calib_path), "[[0.0]]", "[[1.0]]"]
-
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        print(f"  onnx2tf failed:\n{r.stderr[-800:]}")
+        print(f"  onnx2tf failed:\n{r.stderr[-1200:]}")
         return
     float32_produced = False
     int8_produced = False
@@ -474,28 +467,60 @@ def export_via_onnx2tf(model: nn.Module, sample_input: torch.Tensor,
             )
 
         if do_int8:
-            print("\n[int8]")
-            # full_integer_quant: all tensors INT8 (required by espressif TFLite Micro —
-            # it rejects hybrid models where weights are INT8 but activations are float32)
-            src_int = tmp / f"{arch}_full_integer_quant.tflite"
-            if not src_int.exists():
-                candidates = [f for f in list(tmp.glob("*.tflite")) if str(f) != str(src)]
-                src_int = candidates[0] if candidates else None
-            if src_int and src_int.exists() and src_int.stat().st_size > 0:
-                dst = out_dir / f"{arch}_int8.tflite"
-                shutil.copy2(str(src_int), str(dst))
-                print(f"  INT8 TFLite    → {dst.name}  ({dst.stat().st_size / 1024:.1f} KB)")
-                int8_produced = True
-                if not no_c_array:
-                    generate_c_array(dst, out_dir / f"{arch}_int8_data.h",
-                                     f"{arch}_int8_tflite")
+            print("\n[int8]  full-integer via TF converter on the onnx2tf SavedModel")
+            import tensorflow as tf
+
+            # onnx2tf writes the SavedModel into the -o dir (older) or a saved_model/ subdir.
+            if (tmp / "saved_model.pb").exists():
+                sm_dir = tmp
+            elif (tmp / "saved_model" / "saved_model.pb").exists():
+                sm_dir = tmp / "saved_model"
             else:
                 raise RuntimeError(
-                    f"onnx2tf did not produce an INT8 TFLite model.\n"
-                    f"  Expected: {src_int}\n"
-                    f"  Contents of {tmp}: {list(tmp.iterdir())}\n"
-                    f"  Check onnx2tf logs above (calibration data must have >=1 images)."
+                    f"onnx2tf produced no SavedModel to quantize.\n"
+                    f"  Contents of {tmp}: {list(tmp.iterdir())}"
                 )
+
+            batches = list(_sample_inputs_from_val(val_dir, arch, tile_h, tile_w, scale))
+            if not batches:
+                raise RuntimeError(
+                    f"no calibration images in {val_dir} — cannot build a full-integer "
+                    f"INT8 model (TFLite Micro needs int8 activations)."
+                )
+            # NCHW (1,1,H,W) -> NHWC (1,H,W,1) to match the onnx2tf-converted TF graph
+            calib_nhwc = [b.transpose(0, 2, 3, 1).astype(np.float32) for b in batches]
+            print(f"  Calibrating with {len(calib_nhwc)} samples "
+                  f"(int8 weights AND activations, int8 I/O).")
+
+            def representative_dataset():
+                for b in calib_nhwc:
+                    yield [b]
+
+            conv = tf.lite.TFLiteConverter.from_saved_model(str(sm_dir))
+            conv.optimizations = [tf.lite.Optimize.DEFAULT]
+            conv.representative_dataset = representative_dataset
+            conv.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+            conv.inference_input_type = tf.int8
+            conv.inference_output_type = tf.int8
+            int8_bytes = conv.convert()
+
+            dst = out_dir / f"{arch}_int8.tflite"
+            dst.write_bytes(int8_bytes)
+            # Verify it really is full-integer (int8 I/O) — guards against a silent hybrid.
+            interp = tf.lite.Interpreter(model_content=int8_bytes)
+            in_dt = interp.get_input_details()[0]["dtype"].__name__
+            out_dt = interp.get_output_details()[0]["dtype"].__name__
+            print(f"  INT8 TFLite    → {dst.name}  ({dst.stat().st_size / 1024:.1f} KB)  "
+                  f"IO dtype: in={in_dt} out={out_dt}")
+            if in_dt != "int8" or out_dt != "int8":
+                raise RuntimeError(
+                    f"INT8 conversion is not full-integer (in={in_dt}, out={out_dt}); "
+                    f"TFLite Micro would reject it."
+                )
+            int8_produced = True
+            if not no_c_array:
+                generate_c_array(dst, out_dir / f"{arch}_int8_data.h",
+                                 f"{arch}_int8_tflite")
     except Exception as e:
         err = e
     finally:
@@ -558,8 +583,9 @@ def main():
 
     sample_input = torch.zeros(1, num_channels, in_h, in_w)
 
-    if args.arch in {"espcn_micro", "espcn_light"}:
-        # onnx2tf path: handles PixelShuffle → DEPTH_TO_SPACE correctly
+    if args.arch in {"espcn_micro", "espcn_light", "espcn", "fsrcnn"}:
+        # onnx2tf path: handles PixelShuffle → DEPTH_TO_SPACE and ConvTranspose → TRANSPOSE_CONV,
+        # PReLU/Tanh preserved; full-integer INT8 (no hybrid tensors) for TFLite Micro
         export_via_onnx2tf(model, sample_input, args.arch, out_dir,
                            args.int8, args.val_dir, tile_h, tile_w, args.no_c_array,
                            scale)
