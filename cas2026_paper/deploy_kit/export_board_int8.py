@@ -17,9 +17,11 @@ export machine), not silently as a bad on-board PSNR.
 <arch> ∈ {espcn_light, espcn, fsrcnn}. Writes <out_dir>/<arch>_int8.tflite and
 <out_dir>/<arch>_int8_data.h with C symbol <arch>_int8_tflite (matches the .ino).
 """
-import argparse
+import argparse, sys
 from pathlib import Path
 import cv2, numpy as np, tensorflow as tf, torch
+
+sys.path.insert(0, ".")  # so `from models... import ...` works when run from repo root
 
 L = tf.keras.layers
 
